@@ -1,5 +1,9 @@
 # Sentrypede 🐛🤖
 
+[![CI](https://github.com/dovetail/sentrypede/actions/workflows/ci.yml/badge.svg)](https://github.com/dovetail/sentrypede/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/dovetail/sentrypede/branch/main/graph/badge.svg)](https://codecov.io/gh/dovetail/sentrypede)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 An automated Slack agent that monitors Sentry for new application errors, attempts to fix them using AI (Google Gemini), and creates pull requests for human review.
 
 ## Features
@@ -247,6 +251,62 @@ The application is designed to work with AWS Lambda with minor modifications for
 ### Traditional Server
 
 Can be deployed on any server with Node.js 18+ support. Recommended to use a process manager like PM2.
+
+## CI/CD Pipeline
+
+Sentrypede uses GitHub Actions for continuous integration and deployment. The pipeline automatically runs on every push and pull request.
+
+### Continuous Integration
+
+The CI workflow (`.github/workflows/ci.yml`) includes:
+
+- **Multi-version Testing**: Tests against Node.js 18.x and 20.x
+- **Code Quality**: Runs ESLint for code style enforcement
+- **Unit Tests**: Executes full test suite with coverage reporting
+- **Security Scanning**: Runs npm audit and Snyk vulnerability scanning
+- **Build Verification**: Ensures TypeScript compilation succeeds
+- **Docker Build**: Builds and pushes Docker images on main branch
+
+### Release Process
+
+The release workflow (`.github/workflows/release.yml`) triggers on version tags:
+
+1. Create a new version tag:
+   ```bash
+   git tag v1.0.0
+   git push origin v1.0.0
+   ```
+
+2. The workflow automatically:
+   - Creates a GitHub release
+   - Publishes to npm (if configured)
+   - Builds and tags Docker images with version
+
+### Required GitHub Secrets
+
+Configure these secrets in your GitHub repository settings:
+
+- `CODECOV_TOKEN`: For code coverage reporting (optional)
+- `SNYK_TOKEN`: For vulnerability scanning (optional)
+- `DOCKER_USERNAME`: Docker Hub username
+- `DOCKER_PASSWORD`: Docker Hub password
+- `NPM_TOKEN`: npm authentication token (for publishing)
+
+### Dependency Management
+
+Dependabot is configured to automatically:
+- Check for dependency updates weekly
+- Create pull requests for updates
+- Group updates by ecosystem (npm, GitHub Actions, Docker)
+- Add appropriate labels and commit prefixes
+
+### Branch Protection
+
+Recommended branch protection rules for `main`:
+- Require pull request reviews
+- Require status checks to pass (CI workflow)
+- Require branches to be up to date
+- Include administrators in restrictions
 
 ## Contributing
 

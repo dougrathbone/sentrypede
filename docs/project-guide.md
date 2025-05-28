@@ -109,6 +109,14 @@ Sentrypede will operate through the following automated workflow:
   * **Deployment:** Designed to run within a single Docker container or as an AWS Lambda function. Consider Lambda's execution time limits (max 15 mins) and temporary storage limitations, especially for code checkouts and running tests. A container (e.g., on Fargate or ECS) might offer more flexibility.
   * **Local Debugging:** The agent must be easily runnable in a local terminal session. This requires clear instructions, environment variable management (e.g., using `.env` files), and potentially mock services for Sentry/Slack/GitHub/Gemini.
   * **Code Structure:** Maintain a clean, modular architecture.
+  * **CI/CD Pipeline:** Automated testing and deployment via GitHub Actions:
+      * **Continuous Integration:** Automated testing on every push and pull request
+      * **Multi-version Testing:** Support for Node.js 18.x and 20.x
+      * **Code Quality:** ESLint enforcement and code coverage reporting
+      * **Security Scanning:** Automated vulnerability scanning with npm audit and Snyk
+      * **Docker Support:** Automated Docker image building and pushing
+      * **Release Automation:** Tag-based releases with automatic versioning
+      * **Dependency Management:** Automated dependency updates via Dependabot
 
 **8. Non-Functional Requirements**
 
