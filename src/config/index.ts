@@ -10,6 +10,12 @@ export interface SentryConfig {
   projectSlugs: string[];
   environments: string[];
   pollIntervalMs: number;
+  oauth?: {
+    clientId: string;
+    clientSecret: string;
+    redirectUri: string;
+    scope: string[];
+  };
 }
 
 export interface SlackConfig {
@@ -91,6 +97,14 @@ export function loadConfig(): AppConfig {
         projectSlugs: getArrayEnvVar('SENTRY_PROJECT_SLUGS', []),
         environments: getArrayEnvVar('SENTRY_ENVIRONMENTS', ['production']),
         pollIntervalMs: getNumberEnvVar('SENTRY_POLL_INTERVAL_MS', 60000), // 1 minute default
+        ...(process.env.SENTRY_OAUTH_CLIENT_ID && {
+          oauth: {
+            clientId: getRequiredEnvVar('SENTRY_OAUTH_CLIENT_ID'),
+            clientSecret: getRequiredEnvVar('SENTRY_OAUTH_CLIENT_SECRET'),
+            redirectUri: getOptionalEnvVar('SENTRY_OAUTH_REDIRECT_URI', 'http://localhost:3000/oauth/callback'),
+            scope: getArrayEnvVar('SENTRY_OAUTH_SCOPE', ['project:read', 'org:read', 'event:read']),
+          },
+        }),
       },
       
       slack: {

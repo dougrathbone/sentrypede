@@ -218,6 +218,31 @@ export class SlackService {
   }
 
   /**
+   * Post a general message to the configured channel
+   */
+  async postMessage(text: string, blocks?: any[]): Promise<void> {
+    try {
+      const result = await this.client.chat.postMessage({
+        channel: this.config.channelId,
+        text,
+        blocks,
+      });
+
+      if (!result.ok) {
+        throw new Error(`Failed to post message: ${result.error}`);
+      }
+
+      logger.info('Posted message to Slack', {
+        channel: this.config.channelId,
+        text: text.substring(0, 50) + '...',
+      });
+    } catch (error) {
+      logger.error('Failed to post message to Slack', { error });
+      throw error;
+    }
+  }
+
+  /**
    * Get thread information for an issue
    */
   getThread(issueId: string): SlackThread | undefined {

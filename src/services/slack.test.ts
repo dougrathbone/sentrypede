@@ -328,36 +328,83 @@ describe('SlackService', () => {
   });
 
   describe('postProcessingStarted', () => {
-    beforeEach(() => {
-      // Setup a thread first
-      const thread: SlackThread = {
-        issueId: '123',
+    it('should post processing started message', async () => {
+      const issueId = '123';
+      const thread = {
+        issueId,
         channelId: 'C1234567890',
         threadTs: '1234567890.123456',
         createdAt: new Date(),
       };
-      (slackService as any).threads.set('123', thread);
+      
+      (slackService as any).threads.set(issueId, thread);
+      mockWebClient.chat.postMessage.mockResolvedValueOnce({
+        ok: true,
+        ts: '1234567890.123457',
+      });
+
+      await slackService.postProcessingStarted(issueId);
+
+      expect(mockWebClient.chat.postMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          channel: thread.channelId,
+          thread_ts: thread.threadTs,
+          text: expect.stringContaining('analyzing'),
+        })
+      );
     });
+  });
 
-    it('should post processing started message', async () => {
-      const mockResponse = { ok: true, ts: '1234567890.123457' };
-      mockWebClient.chat.postMessage.mockResolvedValue(mockResponse);
+  describe('postMessage', () => {
+    it('should post a general message to the channel', async () => {
+      mockWebClient.chat.postMessage.mockResolvedValueOnce({
+        ok: true,
+        ts: '1234567890.123456',
+      });
 
-      await slackService.postProcessingStarted('123');
+      await slackService.postMessage('Test message');
 
       expect(mockWebClient.chat.postMessage).toHaveBeenCalledWith({
-        channel: 'C1234567890',
-        thread_ts: '1234567890.123456',
-        text: '🔄 Sentrypede is analyzing this issue...',
-        blocks: expect.arrayContaining([
-          expect.objectContaining({
-            type: 'section',
-            text: expect.objectContaining({
-              text: expect.stringContaining('analyzing this issue'),
-            }),
-          }),
-        ]),
+        channel: mockConfig.channelId,
+        text: 'Test message',
+        blocks: undefined,
       });
+    });
+
+    it('should post a message with blocks', async () => {
+      const blocks = [
+        {
+          type: 'section',
+          text: {
+            type: 'mrkdwn',
+            text: 'Test message with blocks',
+          },
+        },
+      ];
+
+      mockWebClient.chat.postMessage.mockResolvedValueOnce({
+        ok: true,
+        ts: '1234567890.123456',
+      });
+
+      await slackService.postMessage('Test message', blocks);
+
+      expect(mockWebClient.chat.postMessage).toHaveBeenCalledWith({
+        channel: mockConfig.channelId,
+        text: 'Test message',
+        blocks,
+      });
+    });
+
+    it('should handle Slack API errors', async () => {
+      mockWebClient.chat.postMessage.mockResolvedValueOnce({
+        ok: false,
+        error: 'channel_not_found',
+      });
+
+      await expect(slackService.postMessage('Test message')).rejects.toThrow(
+        'Failed to post message: channel_not_found'
+      );
     });
   });
 

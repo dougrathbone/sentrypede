@@ -2,6 +2,7 @@ import { SentryAgent } from './worker';
 import { AppConfig } from '../config';
 import { SentryService, SentryIssue } from '../services/sentry';
 import { SlackService } from '../services/slack';
+import { SentryServiceFactory } from '../services/sentry-factory';
 
 // Mock node-cron
 jest.mock('node-cron', () => ({
@@ -16,6 +17,7 @@ jest.mock('node-cron', () => ({
 // Mock services
 jest.mock('../services/sentry');
 jest.mock('../services/slack');
+jest.mock('../services/sentry-factory');
 
 describe('SentryAgent', () => {
   let agent: SentryAgent;
@@ -77,13 +79,19 @@ describe('SentryAgent', () => {
       postFixSuccess: jest.fn(),
       postFixFailure: jest.fn(),
       postThreadUpdate: jest.fn(),
+      postMessage: jest.fn(),
       getThread: jest.fn(),
       getAllThreads: jest.fn(),
       clearThreads: jest.fn(),
     } as any;
 
+    // Mock factory to return our mock service
+    (SentryServiceFactory.create as jest.Mock).mockResolvedValue({
+      service: mockSentryService,
+      isAuthorized: () => true,
+    });
+
     // Mock constructors
-    (SentryService as jest.MockedClass<typeof SentryService>).mockImplementation(() => mockSentryService);
     (SlackService as jest.MockedClass<typeof SlackService>).mockImplementation(() => mockSlackService);
 
     agent = new SentryAgent(mockConfig);
@@ -91,7 +99,6 @@ describe('SentryAgent', () => {
 
   describe('constructor', () => {
     it('should initialize with correct configuration', () => {
-      expect(SentryService).toHaveBeenCalledWith(mockConfig.sentry);
       expect(SlackService).toHaveBeenCalledWith(mockConfig.slack);
       
       const stats = agent.getStats();
@@ -109,6 +116,7 @@ describe('SentryAgent', () => {
 
       await agent.start();
 
+      expect(SentryServiceFactory.create).toHaveBeenCalledWith(mockConfig.sentry);
       expect(mockSlackService.start).toHaveBeenCalled();
       
       const stats = agent.getStats();

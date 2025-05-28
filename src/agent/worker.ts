@@ -3,6 +3,8 @@ import { logger } from '../utils/logger';
 import { AppConfig } from '../config';
 import { SentryService, SentryIssue } from '../services/sentry';
 import { SlackService } from '../services/slack';
+import { SentryServiceFactory, SentryServiceWithOAuth } from '../services/sentry-factory';
+import { SentryOAuthService } from '../services/sentry-oauth';
 
 export interface WorkerStats {
   startTime: Date;
@@ -15,15 +17,16 @@ export interface WorkerStats {
 
 export class SentryAgent {
   private config: AppConfig;
-  private sentryService: SentryService;
+  private sentryService!: SentryService;
+  private sentryOAuthService: SentryOAuthService | undefined;
   private slackService: SlackService;
   private cronJob?: cron.ScheduledTask;
   private stats: WorkerStats;
   private isShuttingDown = false;
+  private sentryServiceWrapper?: SentryServiceWithOAuth;
 
   constructor(config: AppConfig) {
     this.config = config;
-    this.sentryService = new SentryService(config.sentry);
     this.slackService = new SlackService(config.slack);
     
     this.stats = {
@@ -47,7 +50,31 @@ export class SentryAgent {
         pollInterval: this.config.sentry.pollIntervalMs,
         projects: this.config.sentry.projectSlugs,
         environments: this.config.sentry.environments,
+        useOAuth: !!this.config.sentry.oauth,
       });
+
+      // Create Sentry service with OAuth support if configured
+      this.sentryServiceWrapper = await SentryServiceFactory.create(this.config.sentry);
+      this.sentryService = this.sentryServiceWrapper.service;
+      this.sentryOAuthService = this.sentryServiceWrapper.oauthService;
+
+      // If OAuth is configured but not authorized, log the authorization URL
+      if (this.sentryServiceWrapper.isAuthorized && !this.sentryServiceWrapper.isAuthorized()) {
+        const authUrl = this.sentryServiceWrapper.getAuthorizationUrl?.();
+        if (authUrl) {
+          logger.warn('Sentry OAuth authorization required', {
+            authorizationUrl: authUrl,
+            message: 'Please visit the authorization URL to complete OAuth setup',
+          });
+          
+          // Post to Slack about OAuth requirement
+          await this.slackService.start();
+          await this.postOAuthNotification(authUrl);
+          
+          // Wait for authorization (with timeout)
+          await this.waitForOAuthAuthorization();
+        }
+      }
 
       // Start Slack service
       await this.slackService.start();
@@ -90,6 +117,11 @@ export class SentryAgent {
       // Stop cron job
       if (this.cronJob) {
         this.cronJob.stop();
+      }
+
+      // Stop OAuth service if present
+      if (this.sentryOAuthService) {
+        await this.sentryOAuthService.stop();
       }
 
       // Stop Slack service
@@ -285,5 +317,88 @@ export class SentryAgent {
       logger.error('Unhandled rejection', { reason, promise });
       shutdown('unhandledRejection');
     });
+  }
+
+  /**
+   * Post OAuth notification to Slack
+   */
+  private async postOAuthNotification(authUrl: string): Promise<void> {
+    try {
+      await this.slackService.postMessage(
+        '🔐 Sentry OAuth Authorization Required',
+        [
+          {
+            type: 'header',
+            text: {
+              type: 'plain_text',
+              text: '🔐 Sentry OAuth Authorization Required',
+            },
+          },
+          {
+            type: 'section',
+            text: {
+              type: 'mrkdwn',
+              text: 'Sentrypede needs authorization to access your Sentry organization. Please click the button below to complete the OAuth setup.',
+            },
+          },
+          {
+            type: 'actions',
+            elements: [
+              {
+                type: 'button',
+                text: {
+                  type: 'plain_text',
+                  text: 'Authorize Sentrypede',
+                },
+                url: authUrl,
+                style: 'primary',
+              },
+            ],
+          },
+          {
+            type: 'context',
+            elements: [
+              {
+                type: 'mrkdwn',
+                text: 'This authorization is required to monitor and process Sentry issues.',
+              },
+            ],
+          },
+        ]
+      );
+    } catch (error) {
+      logger.error('Failed to post OAuth notification to Slack', { error });
+    }
+  }
+
+  /**
+   * Wait for OAuth authorization with timeout
+   */
+  private async waitForOAuthAuthorization(timeoutMs: number = 300000): Promise<void> {
+    const startTime = Date.now();
+    const checkInterval = 5000; // Check every 5 seconds
+
+    while (!this.isShuttingDown) {
+      if (this.sentryServiceWrapper?.isAuthorized?.()) {
+        logger.info('Sentry OAuth authorization completed successfully');
+        
+        // Post success message to Slack
+        try {
+          await this.slackService.postMessage(
+            '✅ Sentry OAuth authorization completed successfully! Sentrypede is now monitoring for issues.'
+          );
+        } catch (error) {
+          logger.error('Failed to post OAuth success message', { error });
+        }
+        
+        return;
+      }
+
+      if (Date.now() - startTime > timeoutMs) {
+        throw new Error('OAuth authorization timeout - please complete authorization and restart the agent');
+      }
+
+      await new Promise(resolve => setTimeout(resolve, checkInterval));
+    }
   }
 } 
