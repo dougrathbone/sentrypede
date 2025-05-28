@@ -1,7 +1,7 @@
 # Sentrypede 🐛🤖
 
 [![CI](https://github.com/dovetail/sentrypede/actions/workflows/ci.yml/badge.svg)](https://github.com/dovetail/sentrypede/actions/workflows/ci.yml)
-[![codecov](https://codecov.io/gh/dovetail/sentrypede/branch/main/graph/badge.svg)](https://codecov.io/gh/dovetail/sentrypede)
+[![codecov](https://codecov.io/gh/dovetail/sentrypede/branch/master/graph/badge.svg)](https://codecov.io/gh/dovetail/sentrypede)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 An automated Slack agent that monitors Sentry for new application errors, attempts to fix them using AI (Google Gemini), and creates pull requests for human review.
@@ -27,18 +27,18 @@ An automated Slack agent that monitors Sentry for new application errors, attemp
          ▼                       ▼                       ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │                    Sentrypede Agent                             │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐             │
-│  │   Sentry    │  │    Slack    │  │   GitHub    │             │
-│  │   Service   │  │   Service   │  │   Service   │             │
-│  └─────────────┘  └─────────────┘  └─────────────┘             │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐              │
+│  │   Sentry    │  │    Slack    │  │   GitHub    │              │
+│  │   Service   │  │   Service   │  │   Service   │              │
+│  └─────────────┘  └─────────────┘  └─────────────┘              │
 │                           │                                     │
-│  ┌─────────────────────────────────────────────────────────┐   │
-│  │              Worker Agent                               │   │
-│  │  • Issue polling & filtering                           │   │
-│  │  • Slack notifications                                 │   │
-│  │  • AI analysis & fix generation                        │   │
-│  │  • GitHub PR creation                                  │   │
-│  └─────────────────────────────────────────────────────────┘   │
+│  ┌─────────────────────────────────────────────────────────┐    │
+│  │              Worker Agent                               │    │
+│  │  • Issue polling & filtering                            │    │
+│  │  • Slack notifications                                  │    │
+│  │  • AI analysis & fix generation                         │    │
+│  │  • GitHub PR creation                                   │    │
+│  └─────────────────────────────────────────────────────────┘    │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -121,7 +121,7 @@ All configuration is managed through environment variables. See `env.example` fo
 - `SENTRY_POLL_INTERVAL_MS`: Polling interval in milliseconds - default: `60000`
 - `GEMINI_MODEL`: Gemini model to use - default: `gemini-pro`
 - `GEMINI_MAX_TOKENS`: Maximum tokens for Gemini responses - default: `4096`
-- `GITHUB_DEFAULT_BRANCH`: Default branch name - default: `main`
+- `GITHUB_DEFAULT_BRANCH`: Default branch name - default: `master`
 
 ## Development
 
@@ -265,7 +265,7 @@ The CI workflow (`.github/workflows/ci.yml`) includes:
 - **Unit Tests**: Executes full test suite with coverage reporting
 - **Security Scanning**: Runs npm audit and Snyk vulnerability scanning
 - **Build Verification**: Ensures TypeScript compilation succeeds
-- **Docker Build**: Builds and pushes Docker images on main branch
+- **Docker Build**: Builds and pushes Docker images on master branch
 
 ### Release Process
 
@@ -302,7 +302,7 @@ Dependabot is configured to automatically:
 
 ### Branch Protection
 
-Recommended branch protection rules for `main`:
+Recommended branch protection rules for `master`:
 - Require pull request reviews
 - Require status checks to pass (CI workflow)
 - Require branches to be up to date

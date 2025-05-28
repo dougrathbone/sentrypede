@@ -52,7 +52,7 @@ Sentrypede will operate through the following automated workflow:
 **6.3. Code Checkout & Branching**
 
   * **Requirement:** The agent must have secure access to the Dovetail.com GitHub repositories.
-  * **Requirement:** It must pull the latest version of the `main` (or designated default) branch of the relevant repository into a secure, isolated working directory.
+  * **Requirement:** It must pull the latest version of the `master` (or designated default) branch of the relevant repository into a secure, isolated working directory.
   * **Requirement:** It must create a new branch for the fix. The branch name should be descriptive and reference the Sentry issue (e.g., `sentrypede/fix-sentry-<issue-id>`).
 
 **6.4. AI-Powered Bug Fixing (Google Gemini)**
@@ -84,7 +84,7 @@ Sentrypede will operate through the following automated workflow:
 
   * **Requirement:** If the fix is applied and tests pass, the agent must commit the changes (code fix and new unit test) to the created branch.
   * **Requirement:** It must push the branch to the GitHub repository.
-  * **Requirement:** It must create a Pull Request (PR) targeting the `main` (or default) branch.
+  * **Requirement:** It must create a Pull Request (PR) targeting the `master` (or default) branch.
   * **Requirement:** The PR description must be automatically generated and include:
       * A title like "Sentrypede: Fix for Sentry \<issue-id\> - \<Error Message\>".
       * A link to the Sentry issue.

@@ -124,7 +124,7 @@ export function loadConfig(): AppConfig {
         token: getRequiredEnvVar('GITHUB_TOKEN'),
         owner: getRequiredEnvVar('GITHUB_OWNER'),
         repo: getRequiredEnvVar('GITHUB_REPO'),
-        defaultBranch: getOptionalEnvVar('GITHUB_DEFAULT_BRANCH', 'main'),
+        defaultBranch: getOptionalEnvVar('GITHUB_DEFAULT_BRANCH', 'master'),
       },
     };
 
