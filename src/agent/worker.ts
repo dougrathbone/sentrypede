@@ -293,6 +293,11 @@ export class SentryAgent {
    * Setup graceful shutdown handlers
    */
   private setupGracefulShutdown(): void {
+    // Skip setting up process listeners in test environment
+    if (process.env.NODE_ENV === 'test') {
+      return;
+    }
+
     const shutdown = async (signal: string) => {
       logger.info(`Received ${signal}, shutting down gracefully...`);
       try {

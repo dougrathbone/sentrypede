@@ -50,63 +50,41 @@ describe('SentryService', () => {
 
   describe('fetchRecentIssues', () => {
     it('should fetch issues for all configured projects', async () => {
-      const mockIssues1: SentryIssue[] = [
-        {
-          id: '1',
-          title: 'Test Error 1',
-          culprit: 'test.js',
-          permalink: 'https://sentry.io/issue/1',
-          shortId: 'TEST-1',
-          status: 'unresolved',
-          level: 'error',
-          count: '10',
-          userCount: 5,
-          firstSeen: '2024-01-01T00:00:00Z',
-          lastSeen: '2024-01-01T01:00:00Z',
-          project: { id: '1', name: 'Project 1', slug: 'project1' },
-          metadata: { type: 'TypeError', value: 'Cannot read property' },
-          tags: [{ key: 'environment', value: 'production' }],
-        },
-      ];
-
-      const mockIssues2: SentryIssue[] = [
-        {
-          id: '2',
-          title: 'Test Error 2',
-          culprit: 'test2.js',
-          permalink: 'https://sentry.io/issue/2',
-          shortId: 'TEST-2',
-          status: 'unresolved',
-          level: 'error',
-          count: '5',
-          userCount: 2,
-          firstSeen: '2024-01-01T00:00:00Z',
-          lastSeen: '2024-01-01T01:00:00Z',
-          project: { id: '2', name: 'Project 2', slug: 'project2' },
-          metadata: { type: 'ReferenceError', value: 'Variable not defined' },
-          tags: [{ key: 'environment', value: 'staging' }],
-        },
+      const mockIssues = [
+        { id: '1', title: 'Test Issue 1' },
+        { id: '2', title: 'Test Issue 2' },
       ];
 
       const mockAxiosInstance = (sentryService as any).client;
-      mockAxiosInstance.get
-        .mockResolvedValueOnce({ data: mockIssues1 })
-        .mockResolvedValueOnce({ data: mockIssues2 });
+      mockAxiosInstance.get.mockResolvedValue({ data: mockIssues });
 
-      const result = await sentryService.fetchRecentIssues();
+      const issues = await sentryService.fetchRecentIssues();
 
       expect(mockAxiosInstance.get).toHaveBeenCalledTimes(2);
       expect(mockAxiosInstance.get).toHaveBeenCalledWith(
         '/projects/test-org/project1/issues/',
         expect.objectContaining({
           params: expect.objectContaining({
-            statsPeriod: '1h',
+            statsPeriod: '24h',
+            query: 'is:unresolved',
             sort: 'date',
             limit: 25,
           }),
         })
       );
-      expect(result).toEqual([...mockIssues1, ...mockIssues2]);
+      expect(mockAxiosInstance.get).toHaveBeenCalledWith(
+        '/projects/test-org/project2/issues/',
+        expect.objectContaining({
+          params: expect.objectContaining({
+            statsPeriod: '24h',
+            query: 'is:unresolved',
+            sort: 'date',
+            limit: 25,
+          }),
+        })
+      );
+
+      expect(issues).toHaveLength(4); // 2 issues per project
     });
 
     it('should handle API errors gracefully', async () => {

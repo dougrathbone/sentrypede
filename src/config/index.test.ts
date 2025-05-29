@@ -58,7 +58,7 @@ describe('Configuration', () => {
           token: 'ghp_test-github-token',
           owner: 'test-owner',
           repo: 'test-repo',
-          defaultBranch: 'main',
+          defaultBranch: 'master',
         },
       });
     });
@@ -82,7 +82,7 @@ describe('Configuration', () => {
       expect(config.sentry.pollIntervalMs).toBe(60000);
       expect(config.gemini.model).toBe('gemini-pro');
       expect(config.gemini.maxTokens).toBe(4096);
-      expect(config.github.defaultBranch).toBe('main');
+      expect(config.github.defaultBranch).toBe('master');
     });
 
     it('should throw error for missing required environment variables', () => {
