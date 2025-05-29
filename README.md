@@ -95,6 +95,9 @@ All configuration is managed through environment variables. See `env.example` fo
 
 #### Sentry Configuration
 - `SENTRY_AUTH_TOKEN`: Your Sentry API authentication token
+  - **Important**: You must use an **Internal Integration** token for full API access
+  - Organization Auth Tokens (prefix: `sntrys_`) have limited permissions and won't work
+  - See `docs/sentry-setup.md` for detailed setup instructions
 - `SENTRY_ORG_SLUG`: Your Sentry organization slug
 - `SENTRY_PROJECT_SLUGS`: Comma-separated list of project slugs to monitor
 

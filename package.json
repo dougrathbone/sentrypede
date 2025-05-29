@@ -6,12 +6,15 @@
   "scripts": {
     "build": "tsc",
     "start": "node dist/app.js",
-    "dev": "ts-node src/app.ts",
+    "dev": "ts-node-dev --respawn --transpile-only src/app.ts",
     "test": "jest",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
-    "lint": "eslint src/**/*.ts",
-    "lint:fix": "eslint src/**/*.ts --fix"
+    "lint": "eslint src --ext .ts",
+    "lint:fix": "eslint src --ext .ts --fix",
+    "test:sentry": "npm run build && node dist/test-sentry-integration.js",
+    "verify:sentry": "npm run build && node dist/verify-sentry-config.js",
+    "test:auth": "npm run build && node dist/test-sentry-auth.js"
   },
   "keywords": [
     "sentry",

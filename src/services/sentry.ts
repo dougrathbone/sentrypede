@@ -49,6 +49,31 @@ export interface SentryEvent {
   };
 }
 
+export interface SentryOrganization {
+  id: string;
+  slug: string;
+  name: string;
+  dateCreated: string;
+  status: {
+    id: string;
+    name: string;
+  };
+}
+
+export interface SentryProject {
+  id: string;
+  slug: string;
+  name: string;
+  platform: string;
+  dateCreated: string;
+  status: string;
+  organization: {
+    id: string;
+    slug: string;
+    name: string;
+  };
+}
+
 export class SentryService {
   private client: AxiosInstance;
   private config: SentryConfig;
@@ -56,6 +81,15 @@ export class SentryService {
 
   constructor(config: SentryConfig) {
     this.config = config;
+    
+    // Check token type and warn if using organization auth token
+    if (config.authToken.startsWith('sntrys_')) {
+      logger.warn('Using Organization Auth Token - this has limited permissions', {
+        recommendation: 'Create an Internal Integration for full API access',
+        docs: 'https://docs.sentry.io/product/integrations/integration-platform/internal-integration/',
+      });
+    }
+    
     this.client = axios.create({
       baseURL: 'https://sentry.io/api/0',
       headers: {
@@ -90,11 +124,20 @@ export class SentryService {
         return response;
       },
       (error) => {
-        logger.error('Sentry API response error', { 
-          status: error.response?.status,
-          url: error.config?.url,
-          message: error.message 
-        });
+        if (error.response?.status === 403 && this.config.authToken.startsWith('sntrys_')) {
+          logger.error('Authentication failed - Organization Auth Tokens have limited permissions', {
+            status: error.response.status,
+            url: error.config?.url,
+            message: 'Please create an Internal Integration for full API access',
+            docs: 'https://docs.sentry.io/product/integrations/integration-platform/internal-integration/',
+          });
+        } else {
+          logger.error('Sentry API response error', { 
+            status: error.response?.status,
+            url: error.config?.url,
+            message: error.message 
+          });
+        }
         return Promise.reject(error);
       }
     );
@@ -110,12 +153,13 @@ export class SentryService {
       for (const projectSlug of this.config.projectSlugs) {
         logger.debug('Fetching issues for project', { projectSlug });
 
+        // For now, let's fetch all unresolved issues and filter by environment later
         const response = await this.client.get(
           `/projects/${this.config.organizationSlug}/${projectSlug}/issues/`,
           {
             params: {
-              statsPeriod: '1h', // Last hour
-              query: this.buildQuery(),
+              statsPeriod: '24h',
+              query: 'is:unresolved', // Simplified query - we'll filter environments in shouldProcessIssue
               sort: 'date',
               limit: 25,
             },
@@ -222,10 +266,13 @@ export class SentryService {
     }
 
     // Check if issue is in configured environments
-    const environmentTag = issue.tags.find(tag => tag.key === 'environment');
-    if (environmentTag && !this.config.environments.includes(environmentTag.value)) {
-      return false;
+    if (issue.tags && Array.isArray(issue.tags)) {
+      const environmentTag = issue.tags.find(tag => tag.key === 'environment');
+      if (environmentTag && !this.config.environments.includes(environmentTag.value)) {
+        return false;
+      }
     }
+    // If no tags or no environment tag, we'll process it (better to process than miss issues)
 
     return true;
   }
@@ -254,22 +301,80 @@ export class SentryService {
   }
 
   /**
-   * Build query string for filtering issues
+   * List all organizations the auth token has access to
    */
-  private buildQuery(): string {
-    const conditions: string[] = [];
-
-    // Filter by environments
-    if (this.config.environments.length > 0) {
-      const envCondition = this.config.environments
-        .map(env => `environment:${env}`)
-        .join(' OR ');
-      conditions.push(`(${envCondition})`);
+  async listOrganizations(): Promise<SentryOrganization[]> {
+    try {
+      const response = await this.client.get('/organizations/');
+      return response.data as SentryOrganization[];
+    } catch (error) {
+      logger.error('Failed to list organizations', { error });
+      throw error;
     }
+  }
 
-    // Only unresolved issues
-    conditions.push('is:unresolved');
+  /**
+   * List all projects in the organization
+   */
+  async listProjects(): Promise<SentryProject[]> {
+    try {
+      const response = await this.client.get(
+        `/organizations/${this.config.organizationSlug}/projects/`
+      );
+      return response.data as SentryProject[];
+    } catch (error) {
+      logger.error('Failed to list projects', { error });
+      throw error;
+    }
+  }
 
-    return conditions.join(' ');
+  /**
+   * Verify configuration by checking access to specified projects
+   */
+  async verifyConfiguration(): Promise<{
+    valid: boolean;
+    errors: string[];
+    availableProjects: string[];
+  }> {
+    const errors: string[] = [];
+    const availableProjects: string[] = [];
+
+    try {
+      // Check organization access
+      const orgs = await this.listOrganizations();
+      const orgExists = orgs.some(org => org.slug === this.config.organizationSlug);
+      
+      if (!orgExists) {
+        errors.push(`Organization '${this.config.organizationSlug}' not found or not accessible`);
+        return { valid: false, errors, availableProjects };
+      }
+
+      // Get all projects
+      const projects = await this.listProjects();
+      availableProjects.push(...projects.map(p => p.slug));
+
+      // Check each configured project
+      for (const projectSlug of this.config.projectSlugs) {
+        const projectExists = projects.some(p => p.slug === projectSlug);
+        if (!projectExists) {
+          errors.push(`Project '${projectSlug}' not found in organization '${this.config.organizationSlug}'`);
+        }
+      }
+
+      return {
+        valid: errors.length === 0,
+        errors,
+        availableProjects,
+      };
+    } catch (error: any) {
+      if (error.response?.status === 401) {
+        errors.push('Authentication failed - check your auth token');
+      } else if (error.response?.status === 403) {
+        errors.push('Access denied - check token permissions');
+      } else {
+        errors.push(`API error: ${error.message}`);
+      }
+      return { valid: false, errors, availableProjects };
+    }
   }
 } 
