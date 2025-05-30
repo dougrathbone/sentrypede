@@ -20,7 +20,10 @@
     "demo:slack": "npm run build && node dist/demo-slack.js",
     "demo:github": "npm run build && node dist/demo-github.js",
     "test:full": "ts-node src/test-full-integration.ts",
-    "demo:full": "ts-node src/demo-full-workflow.ts"
+    "demo:full": "ts-node src/demo-full-workflow.ts",
+    "demo:basic": "ts-node src/demo-basic-workflow.ts",
+    "demo:integration": "ts-node src/test-full-integration.ts",
+    "demo:interactive-slack": "ts-node src/demo-interactive-slack.ts"
   },
   "keywords": [
     "sentry",
