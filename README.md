@@ -1,63 +1,39 @@
 # Sentrypede 🐛🤖
 
-[![CI](https://github.com/dovetail/sentrypede/actions/workflows/ci.yml/badge.svg)](https://github.com/dovetail/sentrypede/actions/workflows/ci.yml)
-[![codecov](https://codecov.io/gh/dovetail/sentrypede/branch/master/graph/badge.svg)](https://codecov.io/gh/dovetail/sentrypede)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-
-An automated Slack agent that monitors Sentry for new application errors, attempts to fix them using AI (Google Gemini), and creates pull requests for human review.
+An AI-powered Slack agent that monitors Sentry for application bugs and automatically creates pull requests with fixes.
 
 ## Features
 
-- **Automated Sentry Monitoring**: Continuously polls Sentry for new error issues
-- **Intelligent Filtering**: Only processes relevant errors based on environment, severity, and status
-- **Slack Integration**: Posts notifications and updates to designated Slack channels
-- **AI-Powered Analysis**: Uses Google Gemini to analyze errors and generate fixes (coming soon)
-- **GitHub Integration**: Creates branches and pull requests with proposed fixes
-- **Comprehensive Testing**: Full unit test coverage with Jest
-- **Production Ready**: Built with TypeScript, proper error handling, and logging
+- 🔍 **Real-time Monitoring**: Continuously monitors Sentry for new errors
+- 🤖 **AI-Powered Analysis**: Uses Google Gemini AI to analyze errors and generate fixes
+- 💬 **Slack Integration**: Posts updates to Slack with interactive controls
+- 🔧 **Automated Fixes**: Creates GitHub pull requests with code fixes
+- 📊 **Smart Filtering**: Processes only relevant errors based on environment and severity
+- 🔐 **OAuth Support**: Secure authentication with Sentry
+- 🧪 **Test Generation**: Creates unit tests for the fixes
 
-## Architecture
+## How It Works
 
-```
-┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-│   Sentry API    │    │  Slack Bot API  │    │  GitHub API     │
-└─────────────────┘    └─────────────────┘    └─────────────────┘
-         │                       │                       │
-         │                       │                       │
-         ▼                       ▼                       ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                    Sentrypede Agent                             │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐              │
-│  │   Sentry    │  │    Slack    │  │   GitHub    │              │
-│  │   Service   │  │   Service   │  │   Service   │              │
-│  └─────────────┘  └─────────────┘  └─────────────┘              │
-│                           │                                     │
-│  ┌─────────────────────────────────────────────────────────┐    │
-│  │              Worker Agent                               │    │
-│  │  • Issue polling & filtering                            │    │
-│  │  • Slack notifications                                  │    │
-│  │  • AI analysis & fix generation                         │    │
-│  │  • GitHub PR creation                                   │    │
-│  └─────────────────────────────────────────────────────────┘    │
-└─────────────────────────────────────────────────────────────────┘
-```
+1. **Monitor**: Sentrypede polls Sentry for new unresolved errors
+2. **Notify**: Posts error details to a Slack channel
+3. **Analyze**: Uses Gemini AI to understand the root cause
+4. **Fix**: Generates code patches to resolve the issue
+5. **Submit**: Creates a pull request on GitHub with the fix
+6. **Update**: Keeps the Slack thread updated with progress
+
+## Prerequisites
+
+- Node.js 18+ and npm
+- Sentry account with Internal Integration
+- Slack workspace with app permissions
+- GitHub repository with write access
+- Google AI API key for Gemini
 
 ## Quick Start
 
-### Prerequisites
-
-- Node.js 18+ 
-- npm or yarn
-- Sentry account with API access
-- Slack workspace with bot permissions
-- GitHub account with repository access
-- Google Cloud account with Gemini API access
-
-### Installation
-
 1. **Clone the repository**
    ```bash
-   git clone <repository-url>
+   git clone https://github.com/yourusername/sentrypede.git
    cd sentrypede
    ```
 
@@ -66,284 +42,220 @@ An automated Slack agent that monitors Sentry for new application errors, attemp
    npm install
    ```
 
-3. **Configure environment variables**
+3. **Set up environment variables**
    ```bash
-   cp env.example .env
-   # Edit .env with your actual API keys and configuration
+   cp .env.example .env
+   # Edit .env with your configuration
    ```
 
-4. **Build the project**
+4. **Configure services**
+   - [Sentry Setup](docs/sentry-setup.md) - Create Internal Integration
+   - [Slack Setup](docs/slack-setup.md) - Configure bot and permissions
+   - [GitHub Setup](docs/github-setup.md) - Generate personal access token
+   - [Gemini Setup](docs/gemini-setup.md) - Get Google AI API key
+
+5. **Run the application**
    ```bash
    npm run build
-   ```
-
-5. **Run tests**
-   ```bash
-   npm test
-   ```
-
-6. **Start the agent**
-   ```bash
    npm start
    ```
 
 ## Configuration
 
-All configuration is managed through environment variables. See `env.example` for a complete list.
+### Environment Variables
 
-### Required Environment Variables
+```bash
+# Sentry Configuration
+SENTRY_AUTH_TOKEN=your-internal-integration-token
+SENTRY_ORGANIZATION_SLUG=your-org
+SENTRY_PROJECT_SLUGS=project1,project2
+SENTRY_ENVIRONMENTS=production,staging
 
-#### Sentry Configuration
-- `SENTRY_AUTH_TOKEN`: Your Sentry API authentication token
-  - **Important**: You must use an **Internal Integration** token for full API access
-  - Organization Auth Tokens (prefix: `sntrys_`) have limited permissions and won't work
-  - See `docs/sentry-setup.md` for detailed setup instructions
-- `SENTRY_ORG_SLUG`: Your Sentry organization slug
-- `SENTRY_PROJECT_SLUGS`: Comma-separated list of project slugs to monitor
+# Slack Configuration
+SLACK_BOT_TOKEN=xoxb-your-bot-token
+SLACK_APP_TOKEN=xapp-your-app-token
+SLACK_SIGNING_SECRET=your-signing-secret
+SLACK_CHANNEL_ID=C1234567890
 
-#### Slack Configuration
-- `SLACK_BOT_TOKEN`: Your Slack bot token (starts with `xoxb-`)
-- `SLACK_APP_TOKEN`: Your Slack app token (starts with `xapp-`)
-- `SLACK_CHANNEL_ID`: The channel ID where notifications will be posted
-- `SLACK_SIGNING_SECRET`: Your Slack app's signing secret
-- **Important**: See `docs/slack-setup.md` for detailed setup instructions
+# GitHub Configuration
+GITHUB_TOKEN=ghp_your-personal-access-token
+GITHUB_OWNER=your-username-or-org
+GITHUB_REPO=your-repo-name
+GITHUB_DEFAULT_BRANCH=main
 
-#### Google Gemini Configuration
-- `GEMINI_API_KEY`: Your Google Gemini API key
+# Gemini AI Configuration
+GEMINI_API_KEY=your-google-ai-api-key
+GEMINI_MODEL=gemini-pro
+GEMINI_MAX_TOKENS=4096
 
-#### GitHub Configuration
-- `GITHUB_TOKEN`: Your GitHub personal access token
-- `GITHUB_OWNER`: GitHub username or organization name
-- `GITHUB_REPO`: Repository name where fixes will be submitted
-- **Important**: See `docs/github-setup.md` for detailed setup instructions
+# Worker Configuration
+WORKER_POLL_INTERVAL=60000
+WORKER_ENABLED=true
+```
 
-### Optional Environment Variables
+## Testing
 
-- `NODE_ENV`: Environment (development/production) - default: `development`
-- `LOG_LEVEL`: Logging level (debug/info/warn/error) - default: `info`
-- `PORT`: HTTP port for health checks - default: `3000`
-- `SENTRY_ENVIRONMENTS`: Environments to monitor - default: `production`
-- `SENTRY_POLL_INTERVAL_MS`: Polling interval in milliseconds - default: `60000`
-- `GEMINI_MODEL`: Gemini model to use - default: `gemini-pro`
-- `GEMINI_MAX_TOKENS`: Maximum tokens for Gemini responses - default: `4096`
-- `GITHUB_DEFAULT_BRANCH`: Default branch name - default: `master`
+Run the test suite:
+```bash
+npm test
+```
+
+Test individual integrations:
+```bash
+npm run test:sentry    # Test Sentry connection
+npm run test:slack     # Test Slack integration
+npm run test:github    # Test GitHub access
+npm run test:full      # Run full integration test
+```
 
 ## Development
 
 ### Project Structure
 
 ```
-src/
-├── agent/           # Main agent worker logic
-├── config/          # Configuration management
-├── services/        # External service integrations
-│   ├── sentry.ts    # Sentry API client
-│   ├── slack.ts     # Slack Bot integration
-│   └── github.ts    # GitHub API client
-├── utils/           # Utility functions
-└── app.ts           # Application entry point
+sentrypede/
+├── src/
+│   ├── config/         # Configuration management
+│   ├── services/       # External service integrations
+│   │   ├── sentry.ts   # Sentry API client
+│   │   ├── slack.ts    # Slack bot service
+│   │   ├── github.ts   # GitHub API client
+│   │   └── gemini.ts   # Google Gemini AI service
+│   ├── agent/          # Core worker logic
+│   └── utils/          # Utilities and helpers
+├── docs/               # Documentation
+└── tests/              # Test files
 ```
 
 ### Available Scripts
 
-- `npm run dev`: Start in development mode with hot reload
-- `npm run build`: Build TypeScript to JavaScript
-- `npm start`: Start the production build
-- `npm test`: Run all tests
-- `npm run test:watch`: Run tests in watch mode
-- `npm run test:coverage`: Run tests with coverage report
-- `npm run lint`: Run ESLint
-- `npm run lint:fix`: Fix ESLint issues automatically
-- `npm run test:sentry`: Test Sentry integration
-- `npm run test:slack`: Test Slack integration
-- `npm run test:github`: Test GitHub integration
-- `npm run demo:slack`: Run Slack demo
-- `npm run demo:github`: Run GitHub demo
+- `npm run dev` - Run in development mode with hot reload
+- `npm run build` - Build TypeScript to JavaScript
+- `npm run lint` - Run ESLint
+- `npm run typecheck` - Run TypeScript type checking
+- `npm test:watch` - Run tests in watch mode
+- `npm test:coverage` - Generate test coverage report
 
-### Running Tests
+## AI-Powered Analysis
+
+Sentrypede uses Google Gemini AI to:
+
+1. **Understand Errors**: Analyzes stack traces, error messages, and breadcrumbs
+2. **Identify Root Causes**: Determines why the error occurred
+3. **Generate Fixes**: Creates code patches that resolve the issue
+4. **Assess Confidence**: Provides a confidence score (0-1) for each fix
+5. **Write Tests**: Generates unit tests to verify the fix
+
+### Example Fix
+
+For a `TypeError: Cannot read property 'name' of undefined`:
+
+**Original Code:**
+```javascript
+function getUserDisplayName(user) {
+  return user.name || user.email;
+}
+```
+
+**AI-Generated Fix:**
+```javascript
+function getUserDisplayName(user) {
+  // Added null check to prevent TypeError
+  if (!user) {
+    return 'Unknown User';
+  }
+  return user.name || user.email || 'Unknown User';
+}
+```
+
+## Slack Commands
+
+When Sentrypede posts to Slack, team members can:
+
+- 🔍 **View Details**: Click to see full error information
+- ✅ **Mark Resolved**: Manually mark an issue as resolved
+- 🔄 **Retry Fix**: Attempt to generate a fix again
+- 👤 **Assign**: Assign the issue to a team member
+
+## Security
+
+- All credentials are stored as environment variables
+- Supports OAuth 2.0 for Sentry authentication
+- Uses secure token authentication for all services
+- No sensitive data is logged or stored
+
+## CI/CD
+
+The project includes GitHub Actions workflows for:
+
+- **Continuous Integration**: Runs on every push and PR
+  - Linting and type checking
+  - Unit tests across Node.js versions
+  - Security vulnerability scanning
+  - Docker image building
+
+- **Release Process**: Automated releases on tags
+  - Semantic versioning
+  - Docker image publishing
+  - GitHub release creation
+
+## Docker Support
+
+Build and run with Docker:
 
 ```bash
-# Run all tests
-npm test
+# Build the image
+docker build -t sentrypede .
 
-# Run tests in watch mode
-npm run test:watch
-
-# Run tests with coverage
-npm run test:coverage
+# Run the container
+docker run --env-file .env sentrypede
 ```
 
-### Local Development
+## Troubleshooting
 
-1. **Set up test environment variables**
-   ```bash
-   cp env.example .env.test
-   # Edit .env.test with test values
-   ```
+### Common Issues
 
-2. **Start in development mode**
-   ```bash
-   npm run dev
-   ```
+1. **Sentry Authentication Failed**
+   - Ensure you're using an Internal Integration token, not an org auth token
+   - Verify the token has the required scopes
 
-3. **Monitor logs**
-   The application uses structured logging with Winston. In development mode, logs are formatted for readability.
+2. **Slack Not Responding**
+   - Check that socket mode is enabled
+   - Verify all Slack tokens are correct
 
-## How It Works
+3. **GitHub PR Creation Failed**
+   - Ensure the PAT has `repo` scope
+   - Check branch protection rules
 
-### Current Implementation
+4. **Gemini Analysis Failed**
+   - Verify API key is valid
+   - Check rate limits (60/min, 1500/day free tier)
 
-1. **Sentry Monitoring**: The agent polls Sentry API at configured intervals for new issues
-2. **Issue Filtering**: Only processes unresolved error/fatal level issues from configured environments
-3. **Slack Notifications**: Posts rich notifications to Slack with issue details and links
-4. **Thread Management**: Updates the same Slack thread with progress and results
-5. **GitHub Integration**: Creates branches, commits fixes, and opens pull requests
-6. **Simulation**: Currently simulates the fix process with random success/failure
+### Debug Mode
 
-### Upcoming Features
-
-- **AI Analysis**: Use Google Gemini to analyze stack traces and generate code fixes
-- **Test Generation**: Generate unit tests to validate fixes
-- **Advanced Filtering**: More sophisticated issue prioritization and filtering
-- **Interactive Slack Commands**: Allow manual triggering and control via Slack
-
-## API Integration Details
-
-### Sentry API
-- Uses Sentry's REST API v0
-- Fetches issues with filtering by project, environment, and status
-- Extracts stack traces and error context
-- Implements rate limiting and error handling
-
-### Slack Bot API
-- Uses Slack Bolt framework for robust bot functionality
-- Socket mode for real-time event handling
-- Simple, intuitive API with just 5 core methods
-- Smart emoji selection and formatting
-- Thread-based conversation management
-
-### GitHub API
-- Uses Octokit for comprehensive GitHub integration
-- Creates branches from the default branch
-- Commits multiple files in a single operation
-- Opens pull requests with detailed descriptions
-- Supports PR comments and updates
-- Implements proper error handling for common scenarios
-
-## Monitoring and Observability
-
-- **Structured Logging**: JSON-formatted logs with correlation IDs
-- **Health Checks**: HTTP endpoint for monitoring agent status
-- **Metrics**: Built-in statistics tracking (issues processed, success rate, etc.)
-- **Error Handling**: Comprehensive error handling with graceful degradation
-
-## Security Considerations
-
-- **API Key Management**: All secrets managed via environment variables
-- **Least Privilege**: API tokens configured with minimal required permissions
-- **Input Validation**: Strict validation of all external API responses
-- **Secure Defaults**: Safe configuration defaults and validation
-
-## Deployment
-
-### Docker (Recommended)
-
-```dockerfile
-FROM node:18-alpine
-WORKDIR /app
-COPY package*.json ./
-RUN npm ci --only=production
-COPY dist/ ./dist/
-CMD ["npm", "start"]
+Enable debug logging:
+```bash
+LOG_LEVEL=debug npm start
 ```
-
-### AWS Lambda
-
-The application is designed to work with AWS Lambda with minor modifications for the cron scheduling.
-
-### Traditional Server
-
-Can be deployed on any server with Node.js 18+ support. Recommended to use a process manager like PM2.
-
-## CI/CD Pipeline
-
-Sentrypede uses GitHub Actions for continuous integration and deployment. The pipeline automatically runs on every push and pull request.
-
-### Continuous Integration
-
-The CI workflow (`.github/workflows/ci.yml`) includes:
-
-- **Multi-version Testing**: Tests against Node.js 18.x and 20.x
-- **Code Quality**: Runs ESLint for code style enforcement
-- **Unit Tests**: Executes full test suite with coverage reporting
-- **Security Scanning**: Runs npm audit and Snyk vulnerability scanning
-- **Build Verification**: Ensures TypeScript compilation succeeds
-- **Docker Build**: Builds and pushes Docker images on master branch
-
-### Release Process
-
-The release workflow (`.github/workflows/release.yml`) triggers on version tags:
-
-1. Create a new version tag:
-   ```bash
-   git tag v1.0.0
-   git push origin v1.0.0
-   ```
-
-2. The workflow automatically:
-   - Creates a GitHub release
-   - Publishes to npm (if configured)
-   - Builds and tags Docker images with version
-
-### Required GitHub Secrets
-
-Configure these secrets in your GitHub repository settings:
-
-- `CODECOV_TOKEN`: For code coverage reporting (optional)
-- `SNYK_TOKEN`: For vulnerability scanning (optional)
-- `DOCKER_USERNAME`: Docker Hub username
-- `DOCKER_PASSWORD`: Docker Hub password
-- `NPM_TOKEN`: npm authentication token (for publishing)
-
-### Dependency Management
-
-Dependabot is configured to automatically:
-- Check for dependency updates weekly
-- Create pull requests for updates
-- Group updates by ecosystem (npm, GitHub Actions, Docker)
-- Add appropriate labels and commit prefixes
-
-### Branch Protection
-
-Recommended branch protection rules for `master`:
-- Require pull request reviews
-- Require status checks to pass (CI workflow)
-- Require branches to be up to date
-- Include administrators in restrictions
 
 ## Contributing
 
 1. Fork the repository
 2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Make your changes
-4. Add tests for new functionality
-5. Ensure all tests pass (`npm test`)
-6. Commit your changes (`git commit -m 'Add amazing feature'`)
-7. Push to the branch (`git push origin feature/amazing-feature`)
-8. Open a Pull Request
+3. Commit your changes (`git commit -m 'Add amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
 
 ## License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-## Support
+## Acknowledgments
 
-For questions, issues, or contributions, please:
-
-1. Check the existing issues on GitHub
-2. Create a new issue with detailed information
-3. Join our Slack channel for discussions
+- Built with [Slack Bolt](https://slack.dev/bolt-js)
+- Powered by [Google Gemini AI](https://ai.google.dev)
+- Integrates with [Sentry](https://sentry.io) and [GitHub](https://github.com)
 
 ---
 
-**Sentrypede** - Making bug fixing as automated as possible! 🐛➡️🤖➡️✅ 
+Made with ❤️ by the Sentrypede team 

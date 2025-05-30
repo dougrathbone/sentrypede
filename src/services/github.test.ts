@@ -374,8 +374,10 @@ describe('GitHubService', () => {
 
   describe('createFixForIssue', () => {
     it('should create a complete fix workflow', async () => {
-      const files: GitHubFile[] = [
-        { path: 'src/buggy.js', content: 'console.log("fixed");' },
+      const issueId = 'ISSUE-123';
+      const issueTitle = 'Test error';
+      const files = [
+        { path: 'src/test.js', content: 'fixed content' },
       ];
 
       // Mock branch creation
@@ -405,37 +407,50 @@ describe('GitHubService', () => {
       // Mock PR creation
       mockOctokit.pulls.create.mockResolvedValue({
         data: {
-          number: 123,
-          html_url: 'https://github.com/test-owner/test-repo/pull/123',
+          number: 1,
+          html_url: 'https://github.com/test/pr/1',
           state: 'open',
           merged: false,
         },
       });
 
-      const pr = await service.createFixForIssue('ISSUE-123', 'TypeError: undefined', files);
+      const result = await service.createFixForIssue(issueId, issueTitle, files);
 
-      expect(pr).toEqual({
-        number: 123,
-        html_url: 'https://github.com/test-owner/test-repo/pull/123',
+      expect(result).toEqual({
+        number: 1,
+        html_url: 'https://github.com/test/pr/1',
         state: 'open',
         merged: false,
       });
 
-      expect(mockOctokit.git.createRef).toHaveBeenCalledWith({
+      // Check branch creation - use regex to match timestamp
+      expect(mockOctokit.git.createRef).toHaveBeenCalledWith(
+        expect.objectContaining({
+          owner: 'test-owner',
+          repo: 'test-repo',
+          ref: expect.stringMatching(/^refs\/heads\/fix\/sentry-ISSUE-123-\d+$/),
+          sha: 'main-sha',
+        })
+      );
+
+      // Check file commits
+      expect(mockOctokit.git.createBlob).toHaveBeenCalledWith({
         owner: 'test-owner',
         repo: 'test-repo',
-        ref: 'refs/heads/fix/sentry-issue-ISSUE-123',
-        sha: 'main-sha',
+        content: Buffer.from('fixed content').toString('base64'),
+        encoding: 'base64',
       });
 
-      expect(mockOctokit.pulls.create).toHaveBeenCalledWith({
-        owner: 'test-owner',
-        repo: 'test-repo',
-        title: '🐛 Fix: TypeError: undefined',
-        body: expect.stringContaining('ISSUE-123'),
-        head: 'fix/sentry-issue-ISSUE-123',
-        base: 'main',
-      });
+      // Check PR creation
+      expect(mockOctokit.pulls.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          owner: 'test-owner',
+          repo: 'test-repo',
+          title: '🐛 Fix: Test error',
+          head: expect.stringMatching(/^fix\/sentry-ISSUE-123-\d+$/),
+          base: 'main',
+        })
+      );
     });
   });
 }); 
