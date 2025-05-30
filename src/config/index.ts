@@ -36,6 +36,7 @@ export interface GitHubConfig {
   owner: string;
   repo: string;
   defaultBranch: string;
+  enablePullRequests: boolean;
 }
 
 export interface AppConfig {
@@ -84,6 +85,14 @@ function getNumberEnvVar(name: string, defaultValue: number): number {
   return parsed;
 }
 
+function getBooleanEnvVar(name: string, defaultValue: boolean): boolean {
+  const value = process.env[name];
+  if (value === undefined || value === null) {
+    return defaultValue;
+  }
+  return value.toLowerCase() === 'true';
+}
+
 export function loadConfig(): AppConfig {
   try {
     const config: AppConfig = {
@@ -125,6 +134,7 @@ export function loadConfig(): AppConfig {
         owner: getRequiredEnvVar('GITHUB_OWNER'),
         repo: getRequiredEnvVar('GITHUB_REPO'),
         defaultBranch: getOptionalEnvVar('GITHUB_DEFAULT_BRANCH', 'master'),
+        enablePullRequests: getBooleanEnvVar('GITHUB_ENABLE_PULL_REQUESTS', true),
       },
     };
 

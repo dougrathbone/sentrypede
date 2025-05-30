@@ -148,6 +148,22 @@ export class GitHubService {
    * Create a pull request
    */
   async createPullRequest(data: PullRequestData): Promise<PullRequest> {
+    // Check if pull request creation is disabled
+    if (!this.config.enablePullRequests) {
+      logger.info('Pull request creation disabled - simulating PR creation', {
+        title: data.title,
+        branch: data.branch,
+        filesCount: data.files.length,
+      });
+      
+      return {
+        number: 0,
+        html_url: `https://github.com/${this.config.owner}/${this.config.repo}/pull/0 (simulated)`,
+        state: 'simulated',
+        merged: false,
+      };
+    }
+
     try {
       const { data: pr } = await this.octokit.pulls.create({
         owner: this.config.owner,
@@ -303,6 +319,15 @@ export class GitHubService {
     pullNumber: number,
     body: string
   ): Promise<void> {
+    // Check if pull request creation is disabled
+    if (!this.config.enablePullRequests) {
+      logger.info('Pull request commenting disabled - skipping comment creation', {
+        pullNumber,
+        commentLength: body.length,
+      });
+      return;
+    }
+
     try {
       await this.octokit.issues.createComment({
         owner: this.config.owner,
@@ -379,6 +404,22 @@ export class GitHubService {
     try {
       // Create a branch name from the issue
       const branchName = `fix/sentry-${issueId}-${Date.now()}`;
+      
+      // Check if pull request creation is disabled
+      if (!this.config.enablePullRequests) {
+        logger.info('GitHub fix creation disabled - simulating workflow', {
+          issueId,
+          branchName,
+          filesCount: files.length,
+        });
+        
+        return {
+          number: 0,
+          html_url: `https://github.com/${this.config.owner}/${this.config.repo}/pull/0 (simulated)`,
+          state: 'simulated',
+          merged: false,
+        };
+      }
       
       // Create the branch
       await this.createBranch(branchName);

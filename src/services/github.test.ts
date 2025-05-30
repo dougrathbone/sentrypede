@@ -27,6 +27,7 @@ describe('GitHubService', () => {
       owner: 'test-owner',
       repo: 'test-repo',
       defaultBranch: 'main',
+      enablePullRequests: true,
     };
 
     // Create mock Octokit instance
@@ -180,6 +181,44 @@ describe('GitHubService', () => {
         base: 'main',
       });
     });
+
+    it('should handle create PR error gracefully', async () => {
+      const prData: PullRequestData = {
+        title: 'Test PR',
+        body: 'Test description',
+        branch: 'feature/test',
+        files: [],
+      };
+
+      mockOctokit.pulls.create.mockRejectedValue(new Error('API Error'));
+
+      await expect(service.createPullRequest(prData)).rejects.toThrow('API Error');
+    });
+
+    it('should simulate PR creation when enablePullRequests is false', async () => {
+      // Create service with disabled PR creation
+      const disabledConfig = { ...mockConfig, enablePullRequests: false };
+      const disabledService = new GitHubService(disabledConfig);
+
+      const prData: PullRequestData = {
+        title: 'Test PR',
+        body: 'Test description',
+        branch: 'feature/test',
+        files: [],
+      };
+
+      const pr = await disabledService.createPullRequest(prData);
+
+      expect(pr).toEqual({
+        number: 0,
+        html_url: 'https://github.com/test-owner/test-repo/pull/0 (simulated)',
+        state: 'simulated',
+        merged: false,
+      });
+
+      // Should not call the actual API
+      expect(mockOctokit.pulls.create).not.toHaveBeenCalled();
+    });
   });
 
   describe('getFileContent', () => {
@@ -326,6 +365,17 @@ describe('GitHubService', () => {
         body: 'Test comment',
       });
     });
+
+    it('should skip comment creation when enablePullRequests is false', async () => {
+      // Create service with disabled PR creation
+      const disabledConfig = { ...mockConfig, enablePullRequests: false };
+      const disabledService = new GitHubService(disabledConfig);
+
+      await disabledService.createPullRequestComment(123, 'Test comment');
+
+      // Should not call the actual API
+      expect(mockOctokit.issues.createComment).not.toHaveBeenCalled();
+    });
   });
 
   describe('getRepository', () => {
@@ -451,6 +501,32 @@ describe('GitHubService', () => {
           base: 'main',
         })
       );
+    });
+
+    it('should simulate fix creation when enablePullRequests is false', async () => {
+      // Create service with disabled PR creation
+      const disabledConfig = { ...mockConfig, enablePullRequests: false };
+      const disabledService = new GitHubService(disabledConfig);
+
+      const issueId = 'ISSUE-123';
+      const issueTitle = 'Test error';
+      const files = [
+        { path: 'src/test.js', content: 'fixed content' },
+      ];
+
+      const result = await disabledService.createFixForIssue(issueId, issueTitle, files);
+
+      expect(result).toEqual({
+        number: 0,
+        html_url: 'https://github.com/test-owner/test-repo/pull/0 (simulated)',
+        state: 'simulated',
+        merged: false,
+      });
+
+      // Should not call any GitHub APIs
+      expect(mockOctokit.git.createRef).not.toHaveBeenCalled();
+      expect(mockOctokit.git.createBlob).not.toHaveBeenCalled();
+      expect(mockOctokit.pulls.create).not.toHaveBeenCalled();
     });
   });
 }); 

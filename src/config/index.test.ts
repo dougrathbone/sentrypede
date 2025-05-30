@@ -59,6 +59,7 @@ describe('Configuration', () => {
           owner: 'test-owner',
           repo: 'test-repo',
           defaultBranch: 'master',
+          enablePullRequests: true,
         },
       });
     });

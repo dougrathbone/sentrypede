@@ -49,10 +49,11 @@ describe('SentryAgent', () => {
         maxTokens: 4096,
       },
       github: {
-        token: 'ghp_test-token',
+        token: 'test-github-token',
         owner: 'test-owner',
         repo: 'test-repo',
         defaultBranch: 'main',
+        enablePullRequests: true,
       },
     };
 

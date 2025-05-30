@@ -82,6 +82,7 @@ GITHUB_TOKEN=ghp_your-personal-access-token
 GITHUB_OWNER=your-username-or-org
 GITHUB_REPO=your-repo-name
 GITHUB_DEFAULT_BRANCH=main
+GITHUB_ENABLE_PULL_REQUESTS=true
 
 # Gemini AI Configuration
 GEMINI_API_KEY=your-google-ai-api-key
@@ -92,6 +93,20 @@ GEMINI_MAX_TOKENS=4096
 WORKER_POLL_INTERVAL=60000
 WORKER_ENABLED=true
 ```
+
+### Development & Testing Mode
+
+For development and testing environments, you can disable live pull request creation:
+
+```bash
+GITHUB_ENABLE_PULL_REQUESTS=false
+```
+
+When disabled, Sentrypede will simulate the PR creation workflow without making actual changes to your repository. This allows you to:
+- Test the end-to-end workflow safely
+- Debug fix generation without creating branches
+- Run demos without affecting production repositories
+- Validate configurations in staging environments
 
 ## Testing
 
