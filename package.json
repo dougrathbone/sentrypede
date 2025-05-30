@@ -14,7 +14,9 @@
     "lint:fix": "eslint src --ext .ts --fix",
     "test:sentry": "npm run build && node dist/test-sentry-integration.js",
     "verify:sentry": "npm run build && node dist/verify-sentry-config.js",
-    "test:auth": "npm run build && node dist/test-sentry-auth.js"
+    "test:auth": "npm run build && node dist/test-sentry-auth.js",
+    "test:slack": "npm run build && node dist/test-slack-integration.js",
+    "demo:slack": "npm run build && node dist/demo-slack.js"
   },
   "keywords": [
     "sentry",

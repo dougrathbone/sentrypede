@@ -179,9 +179,10 @@ describe('SentryAgent', () => {
       mockSlackService.start.mockResolvedValue(undefined);
       mockSlackService.postIssueNotification.mockResolvedValue({
         issueId: '123',
-        channelId: 'C1234567890',
-        threadTs: '1234567890.123456',
+        channelId: 'C123',
+        threadTs: '123.456',
         createdAt: new Date(),
+        status: 'processing',
       });
       mockSlackService.postProcessingStarted.mockResolvedValue(undefined);
       mockSlackService.postFixSuccess.mockResolvedValue(undefined);
@@ -319,9 +320,10 @@ describe('SentryAgent', () => {
       mockSentryService.shouldProcessIssue.mockReturnValue(true);
       mockSlackService.postIssueNotification.mockResolvedValue({
         issueId: '123',
-        channelId: 'C1234567890',
-        threadTs: '1234567890.123456',
+        channelId: 'C123',
+        threadTs: '123.456',
         createdAt: new Date(),
+        status: 'processing',
       });
       mockSlackService.postProcessingStarted.mockResolvedValue(undefined);
       mockSlackService.postFixSuccess.mockResolvedValue(undefined);

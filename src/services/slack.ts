@@ -1,21 +1,22 @@
-import { App, LogLevel } from '@slack/bolt';
+import { App, LogLevel, KnownBlock } from '@slack/bolt';
 import { WebClient } from '@slack/web-api';
 import { logger } from '../utils/logger';
 import { SlackConfig } from '../config';
-import { SentryIssue } from './sentry';
-
-export interface SlackMessage {
-  channel: string;
-  text: string;
-  blocks?: any[];
-  thread_ts?: string;
-}
+import { SentryIssue, SentryEvent } from './sentry';
 
 export interface SlackThread {
   issueId: string;
   channelId: string;
   threadTs: string;
   createdAt: Date;
+  status: 'processing' | 'success' | 'failed';
+}
+
+export interface IssueContext {
+  issue: SentryIssue;
+  event?: SentryEvent;
+  analysisConfidence?: number;
+  fixAttempted?: boolean;
 }
 
 export class SlackService {
@@ -23,11 +24,11 @@ export class SlackService {
   private client: WebClient;
   private config: SlackConfig;
   private threads: Map<string, SlackThread> = new Map();
+  private issueContexts: Map<string, IssueContext> = new Map();
 
   constructor(config: SlackConfig) {
     this.config = config;
     
-    // Initialize Slack app
     this.app = new App({
       token: config.botToken,
       appToken: config.appToken,
@@ -37,151 +38,196 @@ export class SlackService {
     });
 
     this.client = new WebClient(config.botToken);
-
-    this.setupEventHandlers();
+    this.setupHandlers();
   }
 
   /**
-   * Start the Slack app
+   * Start the Slack service
    */
   async start(): Promise<void> {
-    try {
-      await this.app.start();
-      logger.info('Slack app started successfully');
-    } catch (error) {
-      logger.error('Failed to start Slack app', { error });
-      throw error;
-    }
+    await this.app.start();
+    logger.info('Slack service started');
   }
 
   /**
-   * Stop the Slack app
+   * Stop the Slack service
    */
   async stop(): Promise<void> {
-    try {
-      await this.app.stop();
-      logger.info('Slack app stopped');
-    } catch (error) {
-      logger.error('Failed to stop Slack app', { error });
-      throw error;
-    }
+    await this.app.stop();
+    logger.info('Slack service stopped');
   }
 
   /**
-   * Post initial notification about a new Sentry issue
+   * Post a new issue notification and create a thread
    */
-  async postIssueNotification(issue: SentryIssue): Promise<SlackThread> {
-    try {
-      const blocks = this.buildIssueBlocks(issue);
-      
-      const result = await this.client.chat.postMessage({
-        channel: this.config.channelId,
-        text: `🚨 New Sentry Issue: ${issue.title}`,
-        blocks,
-      });
+  async notifyNewIssue(issue: SentryIssue, event?: SentryEvent): Promise<SlackThread> {
+    const blocks = this.createIssueBlocks(issue, event);
+    
+    const result = await this.client.chat.postMessage({
+      channel: this.config.channelId,
+      text: `🚨 New ${issue.level} in ${issue.project.name}: ${this.truncate(issue.title, 100)}`,
+      blocks,
+      unfurl_links: false,
+    });
 
-      if (!result.ok || !result.ts) {
-        throw new Error(`Failed to post message: ${result.error}`);
-      }
-
-      const thread: SlackThread = {
-        issueId: issue.id,
-        channelId: this.config.channelId,
-        threadTs: result.ts,
-        createdAt: new Date(),
-      };
-
-      this.threads.set(issue.id, thread);
-
-      logger.info('Posted Sentry issue notification', {
-        issueId: issue.id,
-        threadTs: result.ts,
-      });
-
-      return thread;
-    } catch (error) {
-      logger.error('Failed to post issue notification', { issueId: issue.id, error });
-      throw error;
+    if (!result.ok || !result.ts) {
+      throw new Error(`Failed to post message: ${result.error}`);
     }
+
+    const thread: SlackThread = {
+      issueId: issue.id,
+      channelId: this.config.channelId,
+      threadTs: result.ts,
+      createdAt: new Date(),
+      status: 'processing',
+    };
+
+    this.threads.set(issue.id, thread);
+    this.issueContexts.set(issue.id, { 
+      issue, 
+      ...(event && { event })
+    });
+
+    logger.info('Posted issue notification', { issueId: issue.id, threadTs: result.ts });
+    return thread;
   }
 
   /**
-   * Post an update to an existing thread
+   * Update the thread with current status
    */
-  async postThreadUpdate(issueId: string, message: string, blocks?: any[]): Promise<void> {
-    try {
-      const thread = this.threads.get(issueId);
-      if (!thread) {
-        throw new Error(`No thread found for issue ${issueId}`);
-      }
-
-      const result = await this.client.chat.postMessage({
-        channel: thread.channelId,
-        thread_ts: thread.threadTs,
-        text: message,
-        blocks,
-      });
-
-      if (!result.ok) {
-        throw new Error(`Failed to post thread update: ${result.error}`);
-      }
-
-      logger.info('Posted thread update', {
-        issueId,
-        threadTs: thread.threadTs,
-      });
-    } catch (error) {
-      logger.error('Failed to post thread update', { issueId, error });
-      throw error;
+  async updateStatus(issueId: string, status: string, details?: string): Promise<void> {
+    const thread = this.threads.get(issueId);
+    if (!thread) {
+      logger.warn('No thread found for issue', { issueId });
+      return;
     }
+
+    const emoji = this.getStatusEmoji(status);
+    const message = details ? `${emoji} ${status}\n${details}` : `${emoji} ${status}`;
+
+    await this.client.chat.postMessage({
+      channel: thread.channelId,
+      thread_ts: thread.threadTs,
+      text: message,
+    });
   }
 
   /**
-   * Post success message when a fix is created
+   * Post analysis results in a clean format
    */
-  async postFixSuccess(issueId: string, pullRequestUrl: string): Promise<void> {
-    const message = '✅ Sentrypede has created a potential fix!';
-    const blocks = [
+  async postAnalysis(
+    issueId: string, 
+    analysis: {
+      summary: string;
+      cause: string;
+      suggestion: string;
+      confidence: number;
+    }
+  ): Promise<void> {
+    const thread = this.threads.get(issueId);
+    if (!thread) return;
+
+    const context = this.issueContexts.get(issueId);
+    if (context) {
+      context.analysisConfidence = analysis.confidence;
+    }
+
+    const confidenceEmoji = analysis.confidence > 0.7 ? '🟢' : analysis.confidence > 0.4 ? '🟡' : '🔴';
+    
+    const blocks: KnownBlock[] = [
       {
         type: 'section',
         text: {
           type: 'mrkdwn',
-          text: `${message}\n\n*Pull Request:* <${pullRequestUrl}|View PR>\n\nPlease review the proposed changes and merge if appropriate.`,
+          text: `🔍 *Analysis Complete*\n\n*Summary:* ${analysis.summary}\n*Likely Cause:* ${analysis.cause}\n*Confidence:* ${confidenceEmoji} ${Math.round(analysis.confidence * 100)}%`,
         },
       },
       {
-        type: 'actions',
-        elements: [
-          {
-            type: 'button',
-            text: {
-              type: 'plain_text',
-              text: 'Review PR',
-            },
-            url: pullRequestUrl,
-            style: 'primary',
-          },
-        ],
+        type: 'section',
+        text: {
+          type: 'mrkdwn',
+          text: `*Suggested Fix:*\n\`\`\`${analysis.suggestion}\`\`\``,
+        },
       },
     ];
 
-    await this.postThreadUpdate(issueId, message, blocks);
+    await this.client.chat.postMessage({
+      channel: thread.channelId,
+      thread_ts: thread.threadTs,
+      text: '🔍 Analysis Complete',
+      blocks,
+    });
   }
 
   /**
-   * Post failure message when fix attempt fails
+   * Post success notification with PR link
    */
-  async postFixFailure(issueId: string, reason: string, sentryUrl: string): Promise<void> {
-    const message = '❌ Sentrypede was unable to create a fix';
-    const blocks = [
+  async notifySuccess(issueId: string, prUrl: string, summary?: string): Promise<void> {
+    const thread = this.threads.get(issueId);
+    if (!thread) return;
+
+    thread.status = 'success';
+    const context = this.issueContexts.get(issueId);
+    if (context) {
+      context.fixAttempted = true;
+    }
+
+    const blocks: KnownBlock[] = [
       {
         type: 'section',
         text: {
           type: 'mrkdwn',
-          text: `${message}\n\n*Reason:* ${reason}\n\n*Sentry Issue:* <${sentryUrl}|View in Sentry>\n\nManual investigation required.`,
+          text: `✅ *Fix Created Successfully!*${summary ? `\n\n${summary}` : ''}\n\n<${prUrl}|View Pull Request>`,
+        },
+        accessory: {
+          type: 'button',
+          text: {
+            type: 'plain_text',
+            text: 'Review PR',
+          },
+          url: prUrl,
+          style: 'primary',
         },
       },
+    ];
+
+    await this.client.chat.postMessage({
+      channel: thread.channelId,
+      thread_ts: thread.threadTs,
+      text: '✅ Fix created successfully!',
+      blocks,
+    });
+  }
+
+  /**
+   * Post failure notification with helpful context
+   */
+  async notifyFailure(issueId: string, reason: string, suggestions?: string[]): Promise<void> {
+    const thread = this.threads.get(issueId);
+    if (!thread) return;
+
+    thread.status = 'failed';
+    const context = this.issueContexts.get(issueId);
+    const issue = context?.issue;
+
+    let text = `❌ *Unable to create automated fix*\n\n*Reason:* ${reason}`;
+    
+    if (suggestions && suggestions.length > 0) {
+      text += '\n\n*Next steps:*\n' + suggestions.map(s => `• ${s}`).join('\n');
+    }
+
+    const blocks: KnownBlock[] = [
       {
+        type: 'section',
+        text: {
+          type: 'mrkdwn',
+          text,
+        },
+      },
+    ];
+
+    if (issue) {
+      blocks.push({
         type: 'actions',
         elements: [
           {
@@ -190,130 +236,113 @@ export class SlackService {
               type: 'plain_text',
               text: 'View in Sentry',
             },
-            url: sentryUrl,
+            url: issue.permalink,
           },
         ],
-      },
-    ];
-
-    await this.postThreadUpdate(issueId, message, blocks);
-  }
-
-  /**
-   * Post processing started message
-   */
-  async postProcessingStarted(issueId: string): Promise<void> {
-    const message = '🔄 Sentrypede is analyzing this issue...';
-    const blocks = [
-      {
-        type: 'section',
-        text: {
-          type: 'mrkdwn',
-          text: `${message}\n\nI'm fetching the error details and will attempt to create a fix.`,
-        },
-      },
-    ];
-
-    await this.postThreadUpdate(issueId, message, blocks);
-  }
-
-  /**
-   * Post a general message to the configured channel
-   */
-  async postMessage(text: string, blocks?: any[]): Promise<void> {
-    try {
-      const result = await this.client.chat.postMessage({
-        channel: this.config.channelId,
-        text,
-        blocks,
       });
-
-      if (!result.ok) {
-        throw new Error(`Failed to post message: ${result.error}`);
-      }
-
-      logger.info('Posted message to Slack', {
-        channel: this.config.channelId,
-        text: text.substring(0, 50) + '...',
-      });
-    } catch (error) {
-      logger.error('Failed to post message to Slack', { error });
-      throw error;
     }
+
+    await this.client.chat.postMessage({
+      channel: thread.channelId,
+      thread_ts: thread.threadTs,
+      text: '❌ Unable to create automated fix',
+      blocks,
+    });
   }
 
   /**
-   * Get thread information for an issue
+   * Post a simple message to the channel (not in a thread)
+   */
+  async postMessage(text: string, blocks?: KnownBlock[]): Promise<void> {
+    await this.client.chat.postMessage({
+      channel: this.config.channelId,
+      text,
+      blocks,
+    });
+  }
+
+  /**
+   * Get thread info for an issue
    */
   getThread(issueId: string): SlackThread | undefined {
     return this.threads.get(issueId);
   }
 
   /**
-   * Get all active threads
+   * Create issue notification blocks
    */
-  getAllThreads(): SlackThread[] {
-    return Array.from(this.threads.values());
-  }
+  private createIssueBlocks(issue: SentryIssue, event?: SentryEvent): KnownBlock[] {
+    const env = issue.tags?.find(t => t.key === 'environment')?.value || 'unknown';
+    const browser = issue.tags?.find(t => t.key === 'browser')?.value;
+    
+    // Build a clean, scannable summary
+    const summary = [
+      `📍 *${issue.project.name}* (${env})`,
+      `🔢 ${this.formatNumber(parseInt(issue.count))} occurrences affecting ${this.formatNumber(issue.userCount)} users`,
+      `⏱️ First seen ${this.getRelativeTime(new Date(issue.firstSeen))}`,
+    ];
 
-  /**
-   * Clear thread cache (useful for testing)
-   */
-  clearThreads(): void {
-    this.threads.clear();
-    logger.debug('Cleared Slack threads cache');
-  }
+    if (browser) {
+      summary.push(`🌐 ${browser}`);
+    }
 
-  /**
-   * Build Slack blocks for issue notification
-   */
-  private buildIssueBlocks(issue: SentryIssue): any[] {
-    const environmentTag = issue.tags.find(tag => tag.key === 'environment');
-    const environment = environmentTag?.value || 'unknown';
-
-    return [
+    const blocks: KnownBlock[] = [
       {
         type: 'header',
         text: {
           type: 'plain_text',
-          text: '🚨 New Sentry Issue Detected',
+          text: `${this.getSeverityEmoji(issue.level)} ${issue.level.toUpperCase()}: ${issue.metadata.type}`,
         },
-      },
-      {
-        type: 'section',
-        fields: [
-          {
-            type: 'mrkdwn',
-            text: `*Issue:* ${issue.title}`,
-          },
-          {
-            type: 'mrkdwn',
-            text: `*Project:* ${issue.project.name}`,
-          },
-          {
-            type: 'mrkdwn',
-            text: `*Environment:* ${environment}`,
-          },
-          {
-            type: 'mrkdwn',
-            text: `*Level:* ${issue.level.toUpperCase()}`,
-          },
-          {
-            type: 'mrkdwn',
-            text: `*Count:* ${issue.count}`,
-          },
-          {
-            type: 'mrkdwn',
-            text: `*Users Affected:* ${issue.userCount}`,
-          },
-        ],
       },
       {
         type: 'section',
         text: {
           type: 'mrkdwn',
-          text: `*Error:* \`${issue.metadata.type}: ${issue.metadata.value}\``,
+          text: `*${this.truncate(issue.title, 150)}*\n\n${summary.join('\n')}`,
         },
+      },
+    ];
+
+    // Add error location if available
+    if (issue.culprit) {
+      blocks.push({
+        type: 'section',
+        text: {
+          type: 'mrkdwn',
+          text: `📄 \`${issue.culprit}\``,
+        },
+      });
+    }
+
+    // Add error message if different from title
+    if (issue.metadata.value && issue.metadata.value !== issue.title) {
+      blocks.push({
+        type: 'section',
+        text: {
+          type: 'mrkdwn',
+          text: `\`\`\`${this.truncate(issue.metadata.value, 200)}\`\`\``,
+        },
+      });
+    }
+
+    // Add stack trace preview if available
+    if (event?.entries) {
+      const stackFrame = this.getRelevantStackFrame(event);
+      if (stackFrame) {
+        blocks.push({
+          type: 'context',
+          elements: [{
+            type: 'mrkdwn',
+            text: `Stack: \`${stackFrame.filename}:${stackFrame.lineno}\` in \`${stackFrame.function || 'anonymous'}\``,
+          }],
+        });
+      }
+    }
+
+    // Add action buttons
+    blocks.push(
+      {
+        type: 'divider',
       },
       {
         type: 'actions',
@@ -327,52 +356,139 @@ export class SlackService {
             url: issue.permalink,
           },
         ],
-      },
-      {
-        type: 'divider',
-      },
-      {
-        type: 'context',
-        elements: [
-          {
-            type: 'mrkdwn',
-            text: `Sentrypede will now attempt to analyze and fix this issue automatically.`,
-          },
-        ],
-      },
-    ];
+      }
+    );
+
+    return blocks;
   }
 
   /**
-   * Setup event handlers for the Slack app
+   * Setup Slack event handlers
    */
-  private setupEventHandlers(): void {
-    // Handle app mentions
+  private setupHandlers(): void {
+    // Handle mentions
     this.app.event('app_mention', async ({ event, say }) => {
-      try {
+      const text = event.text.toLowerCase();
+      
+      if (text.includes('status')) {
+        const stats = this.getStats();
         await say({
-          text: `Hello <@${event.user}>! I'm Sentrypede, your automated bug-fixing assistant. I monitor Sentry for new issues and attempt to fix them automatically.`,
           thread_ts: event.ts,
+          text: `📊 *Current Status*\n• Active issues: ${stats.active}\n• Fixed today: ${stats.fixed}\n• Failed: ${stats.failed}`,
         });
-      } catch (error) {
-        logger.error('Failed to handle app mention', { error });
-      }
-    });
-
-    // Handle direct messages
-    this.app.message('hello', async ({ say }) => {
-      try {
+      } else if (text.includes('help')) {
         await say({
-          text: 'Hello! I\'m Sentrypede. I automatically monitor Sentry issues and create fixes. You can check my status by mentioning me in a channel.',
+          thread_ts: event.ts,
+          text: `👋 I'm Sentrypede! I monitor Sentry for errors and create fixes.\n\nCommands:\n• \`@Sentrypede status\` - See current stats\n• \`@Sentrypede help\` - Show this message`,
         });
-      } catch (error) {
-        logger.error('Failed to handle direct message', { error });
+      } else {
+        await say({
+          thread_ts: event.ts,
+          text: `Hello! Type \`@Sentrypede help\` to see what I can do.`,
+        });
       }
     });
 
-    // Global error handler
+    // Handle errors
     this.app.error(async (error) => {
       logger.error('Slack app error', { error });
+    });
+  }
+
+  /**
+   * Get simple stats
+   */
+  private getStats() {
+    const threads = Array.from(this.threads.values());
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
+    return {
+      active: threads.filter(t => t.status === 'processing').length,
+      fixed: threads.filter(t => t.status === 'success' && t.createdAt >= today).length,
+      failed: threads.filter(t => t.status === 'failed' && t.createdAt >= today).length,
+    };
+  }
+
+  /**
+   * Utility methods
+   */
+  private getSeverityEmoji(level: string): string {
+    const emojis: Record<string, string> = {
+      fatal: '💀',
+      error: '🔴',
+      warning: '⚠️',
+      info: 'ℹ️',
+    };
+    return emojis[level] || '🔵';
+  }
+
+  private getStatusEmoji(status: string): string {
+    const statusLower = status.toLowerCase();
+    if (statusLower.includes('analyz')) return '🔍';
+    if (statusLower.includes('fetch')) return '📥';
+    if (statusLower.includes('generat') || statusLower.includes('creat')) return '🔨';
+    if (statusLower.includes('test')) return '🧪';
+    if (statusLower.includes('complete') || statusLower.includes('success')) return '✅';
+    if (statusLower.includes('fail') || statusLower.includes('error')) return '❌';
+    return '🔄';
+  }
+
+  private formatNumber(num: number): string {
+    return new Intl.NumberFormat().format(num);
+  }
+
+  private getRelativeTime(date: Date): string {
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMins / 60);
+    const diffDays = Math.floor(diffHours / 24);
+
+    if (diffDays > 0) return `${diffDays}d ago`;
+    if (diffHours > 0) return `${diffHours}h ago`;
+    if (diffMins > 0) return `${diffMins}m ago`;
+    return 'just now';
+  }
+
+  private truncate(text: string, maxLength: number): string {
+    if (text.length <= maxLength) return text;
+    return text.substring(0, maxLength - 3) + '...';
+  }
+
+  private getRelevantStackFrame(event: SentryEvent): any {
+    const exception = event.entries?.find(e => e.type === 'exception');
+    const frames = exception?.data?.values?.[0]?.stacktrace?.frames;
+    return frames?.[frames.length - 1];
+  }
+
+  /**
+   * Backward compatibility methods
+   */
+  async postIssueNotification(issue: SentryIssue): Promise<SlackThread> {
+    return this.notifyNewIssue(issue);
+  }
+
+  async postProcessingStarted(issueId: string): Promise<void> {
+    return this.updateStatus(issueId, 'Analyzing issue...');
+  }
+
+  async postFixSuccess(issueId: string, prUrl: string): Promise<void> {
+    return this.notifySuccess(issueId, prUrl);
+  }
+
+  async postFixFailure(issueId: string, reason: string, _sentryUrl: string): Promise<void> {
+    return this.notifyFailure(issueId, reason);
+  }
+
+  async postThreadUpdate(issueId: string, message: string): Promise<void> {
+    const thread = this.threads.get(issueId);
+    if (!thread) return;
+
+    await this.client.chat.postMessage({
+      channel: thread.channelId,
+      thread_ts: thread.threadTs,
+      text: message,
     });
   }
 } 

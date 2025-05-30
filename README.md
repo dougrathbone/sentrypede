@@ -106,6 +106,7 @@ All configuration is managed through environment variables. See `env.example` fo
 - `SLACK_APP_TOKEN`: Your Slack app token (starts with `xapp-`)
 - `SLACK_CHANNEL_ID`: The channel ID where notifications will be posted
 - `SLACK_SIGNING_SECRET`: Your Slack app's signing secret
+- **Important**: See `docs/slack-setup.md` for detailed setup instructions
 
 #### Google Gemini Configuration
 - `GEMINI_API_KEY`: Your Google Gemini API key
@@ -211,7 +212,8 @@ npm run test:coverage
 ### Slack Bot API
 - Uses Slack Bolt framework for robust bot functionality
 - Socket mode for real-time event handling
-- Rich message formatting with blocks and interactive elements
+- Simple, intuitive API with just 5 core methods
+- Smart emoji selection and formatting
 - Thread-based conversation management
 
 ### GitHub API (Coming Soon)
