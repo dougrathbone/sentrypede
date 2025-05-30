@@ -12,7 +12,7 @@ An automated Slack agent that monitors Sentry for new application errors, attemp
 - **Intelligent Filtering**: Only processes relevant errors based on environment, severity, and status
 - **Slack Integration**: Posts notifications and updates to designated Slack channels
 - **AI-Powered Analysis**: Uses Google Gemini to analyze errors and generate fixes (coming soon)
-- **GitHub Integration**: Creates branches and pull requests with proposed fixes (coming soon)
+- **GitHub Integration**: Creates branches and pull requests with proposed fixes
 - **Comprehensive Testing**: Full unit test coverage with Jest
 - **Production Ready**: Built with TypeScript, proper error handling, and logging
 
@@ -115,6 +115,7 @@ All configuration is managed through environment variables. See `env.example` fo
 - `GITHUB_TOKEN`: Your GitHub personal access token
 - `GITHUB_OWNER`: GitHub username or organization name
 - `GITHUB_REPO`: Repository name where fixes will be submitted
+- **Important**: See `docs/github-setup.md` for detailed setup instructions
 
 ### Optional Environment Variables
 
@@ -138,7 +139,7 @@ src/
 ├── services/        # External service integrations
 │   ├── sentry.ts    # Sentry API client
 │   ├── slack.ts     # Slack Bot integration
-│   └── github.ts    # GitHub API client (coming soon)
+│   └── github.ts    # GitHub API client
 ├── utils/           # Utility functions
 └── app.ts           # Application entry point
 ```
@@ -153,6 +154,11 @@ src/
 - `npm run test:coverage`: Run tests with coverage report
 - `npm run lint`: Run ESLint
 - `npm run lint:fix`: Fix ESLint issues automatically
+- `npm run test:sentry`: Test Sentry integration
+- `npm run test:slack`: Test Slack integration
+- `npm run test:github`: Test GitHub integration
+- `npm run demo:slack`: Run Slack demo
+- `npm run demo:github`: Run GitHub demo
 
 ### Running Tests
 
@@ -185,18 +191,18 @@ npm run test:coverage
 
 ## How It Works
 
-### Current Implementation (Phase 1)
+### Current Implementation
 
 1. **Sentry Monitoring**: The agent polls Sentry API at configured intervals for new issues
 2. **Issue Filtering**: Only processes unresolved error/fatal level issues from configured environments
 3. **Slack Notifications**: Posts rich notifications to Slack with issue details and links
 4. **Thread Management**: Updates the same Slack thread with progress and results
-5. **Simulation**: Currently simulates the fix process with random success/failure
+5. **GitHub Integration**: Creates branches, commits fixes, and opens pull requests
+6. **Simulation**: Currently simulates the fix process with random success/failure
 
-### Upcoming Features (Future Phases)
+### Upcoming Features
 
 - **AI Analysis**: Use Google Gemini to analyze stack traces and generate code fixes
-- **GitHub Integration**: Automatically create branches, apply fixes, and submit pull requests
 - **Test Generation**: Generate unit tests to validate fixes
 - **Advanced Filtering**: More sophisticated issue prioritization and filtering
 - **Interactive Slack Commands**: Allow manual triggering and control via Slack
@@ -216,11 +222,13 @@ npm run test:coverage
 - Smart emoji selection and formatting
 - Thread-based conversation management
 
-### GitHub API (Coming Soon)
-- Repository cloning and branch management
-- File modification and commit creation
-- Pull request creation with detailed descriptions
-- Integration with CI/CD workflows
+### GitHub API
+- Uses Octokit for comprehensive GitHub integration
+- Creates branches from the default branch
+- Commits multiple files in a single operation
+- Opens pull requests with detailed descriptions
+- Supports PR comments and updates
+- Implements proper error handling for common scenarios
 
 ## Monitoring and Observability
 
