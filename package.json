@@ -19,7 +19,8 @@
     "test:github": "npm run build && node dist/test-github-integration.js",
     "demo:slack": "npm run build && node dist/demo-slack.js",
     "demo:github": "npm run build && node dist/demo-github.js",
-    "test:full": "ts-node src/test-full-integration.ts"
+    "test:full": "ts-node src/test-full-integration.ts",
+    "demo:full": "ts-node src/demo-full-workflow.ts"
   },
   "keywords": [
     "sentry",

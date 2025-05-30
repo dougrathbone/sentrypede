@@ -229,7 +229,7 @@ async function processIssue(
 
 async function runDemoFlow(
   slackService: SlackService,
-  githubService: GitHubService,
+  _githubService: GitHubService,
   geminiService: GeminiService
 ) {
   logger.info('\n🎭 Running demo flow with mock data...');
@@ -275,7 +275,7 @@ export function formatUserGreeting(user) {
   };
 
   // Post to Slack
-  const thread = await slackService.notifyNewIssue(mockIssue);
+  await slackService.notifyNewIssue(mockIssue);
   logger.info('Demo issue posted to Slack');
 
   // Analyze with Gemini
