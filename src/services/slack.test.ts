@@ -144,7 +144,7 @@ describe('SlackService', () => {
 
       expect(mockClient.chat.postMessage).toHaveBeenLastCalledWith(
         expect.objectContaining({
-          text: '🔍 Analysis Complete',
+          text: '🔍 Analysis Complete ',
           blocks: expect.arrayContaining([
             expect.objectContaining({
               text: expect.objectContaining({
@@ -202,7 +202,7 @@ describe('SlackService', () => {
 
       expect(mockClient.chat.postMessage).toHaveBeenLastCalledWith(
         expect.objectContaining({
-          text: '✅ Fix created successfully!',
+          text: '✅ Fix created successfully! ',
           blocks: expect.arrayContaining([
             expect.objectContaining({
               text: expect.objectContaining({
@@ -230,6 +230,25 @@ describe('SlackService', () => {
       const thread = service.getThread(issue.id);
       expect(thread?.status).toBe('success');
     });
+
+    it('should post success without summary', async () => {
+      const issue = createMockIssue();
+      await service.notifyNewIssue(issue);
+
+      await service.notifySuccess(issue.id, 'https://github.com/test/pr/123');
+
+      expect(mockClient.chat.postMessage).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          text: '✅ Fix created successfully! ',
+          blocks: expect.arrayContaining([
+            expect.objectContaining({
+              accessory: expect.objectContaining({ url: 'https://github.com/test/pr/123' }),
+              text: expect.objectContaining({ text: expect.stringContaining('Fix Created Successfully!') })
+            })
+          ])
+        })
+      );
+    });
   });
 
   describe('notifyFailure', () => {
@@ -245,7 +264,7 @@ describe('SlackService', () => {
 
       expect(mockClient.chat.postMessage).toHaveBeenLastCalledWith(
         expect.objectContaining({
-          text: '❌ Unable to create automated fix',
+          text: '❌ Unable to create automated fix ',
           blocks: expect.arrayContaining([
             expect.objectContaining({
               text: expect.objectContaining({

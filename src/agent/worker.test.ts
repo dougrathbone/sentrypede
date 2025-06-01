@@ -75,6 +75,9 @@ describe('SentryAgent', () => {
     mockSlackService = {
       start: jest.fn(),
       stop: jest.fn(),
+      notifyNewIssue: jest.fn(),
+      notifyFailure: jest.fn(),
+      updateStatus: jest.fn(),
       postIssueNotification: jest.fn(),
       postProcessingStarted: jest.fn(),
       postFixSuccess: jest.fn(),
@@ -178,30 +181,29 @@ describe('SentryAgent', () => {
 
     beforeEach(async () => {
       mockSlackService.start.mockResolvedValue(undefined);
-      mockSlackService.postIssueNotification.mockResolvedValue({
+      mockSlackService.notifyNewIssue.mockResolvedValue({
         issueId: '123',
         channelId: 'C123',
         threadTs: '123.456',
         createdAt: new Date(),
         status: 'processing',
       });
-      mockSlackService.postProcessingStarted.mockResolvedValue(undefined);
+      mockSlackService.updateStatus.mockResolvedValue(undefined);
       mockSlackService.postFixSuccess.mockResolvedValue(undefined);
-      mockSlackService.postFixFailure.mockResolvedValue(undefined);
+      mockSlackService.notifyFailure.mockResolvedValue(undefined);
     });
 
     it('should process new issues', async () => {
       mockSentryService.fetchRecentIssues.mockResolvedValue([mockIssue]);
       mockSentryService.shouldProcessIssue.mockReturnValue(true);
 
-      // Start agent to trigger initial poll
       await agent.start();
 
       expect(mockSentryService.fetchRecentIssues).toHaveBeenCalled();
       expect(mockSentryService.shouldProcessIssue).toHaveBeenCalledWith(mockIssue);
       expect(mockSentryService.markAsProcessed).toHaveBeenCalledWith('123');
-      expect(mockSlackService.postIssueNotification).toHaveBeenCalledWith(mockIssue);
-      expect(mockSlackService.postProcessingStarted).toHaveBeenCalledWith('123');
+      expect(mockSlackService.notifyNewIssue).toHaveBeenCalledWith(mockIssue);
+      expect(mockSlackService.updateStatus).toHaveBeenCalledWith('123', 'Starting analysis...');
 
       const stats = agent.getStats();
       expect(stats.issuesProcessed).toBe(1);
@@ -215,7 +217,7 @@ describe('SentryAgent', () => {
 
       expect(mockSentryService.shouldProcessIssue).toHaveBeenCalledWith(mockIssue);
       expect(mockSentryService.markAsProcessed).not.toHaveBeenCalled();
-      expect(mockSlackService.postIssueNotification).not.toHaveBeenCalled();
+      expect(mockSlackService.notifyNewIssue).not.toHaveBeenCalled();
 
       const stats = agent.getStats();
       expect(stats.issuesProcessed).toBe(0);
@@ -234,14 +236,14 @@ describe('SentryAgent', () => {
     it('should handle processing errors gracefully', async () => {
       mockSentryService.fetchRecentIssues.mockResolvedValue([mockIssue]);
       mockSentryService.shouldProcessIssue.mockReturnValue(true);
-      mockSlackService.postIssueNotification.mockRejectedValue(new Error('Slack error'));
+      mockSlackService.notifyNewIssue.mockRejectedValue(new Error('Slack error when notifying new issue'));
 
       await agent.start();
 
-      expect(mockSlackService.postFixFailure).toHaveBeenCalledWith(
+      expect(mockSlackService.notifyFailure).toHaveBeenCalledWith(
         '123',
         'Internal processing error',
-        'https://sentry.io/issue/123'
+        ['Check logs for details', 'Restart the service if needed']
       );
 
       const stats = agent.getStats();
@@ -319,14 +321,14 @@ describe('SentryAgent', () => {
       mockSlackService.start.mockResolvedValue(undefined);
       mockSentryService.fetchRecentIssues.mockResolvedValue([mockIssue]);
       mockSentryService.shouldProcessIssue.mockReturnValue(true);
-      mockSlackService.postIssueNotification.mockResolvedValue({
+      mockSlackService.notifyNewIssue.mockResolvedValue({
         issueId: '123',
         channelId: 'C123',
         threadTs: '123.456',
         createdAt: new Date(),
         status: 'processing',
       });
-      mockSlackService.postProcessingStarted.mockResolvedValue(undefined);
+      mockSlackService.updateStatus.mockResolvedValue(undefined);
       mockSlackService.postFixSuccess.mockResolvedValue(undefined);
 
       await agent.start();

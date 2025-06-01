@@ -1,0 +1,1 @@
+🔍 *Analysis Complete*\n\n*Summary:* {{summary}}\n*Likely Cause:* {{cause}}\n*Confidence:* {{confidenceEmoji}} {{confidencePercentage}}% 

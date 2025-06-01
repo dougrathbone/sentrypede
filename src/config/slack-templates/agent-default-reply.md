@@ -1,0 +1,1 @@
+Hello! Type \`@Sentrypede help\` to see what I can do. 

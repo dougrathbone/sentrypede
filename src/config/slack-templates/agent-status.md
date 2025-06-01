@@ -1,0 +1,1 @@
+📊 *Current Status*\n• Active issues: {{active}}\n• Fixed today: {{fixed}}\n• Failed: {{failed}} 

@@ -8,3 +8,5 @@ Some of the key files for context are:
 @project-guide.md - the main description of the project
 
 Today we're going to work on:
+
+- the next step in our @project-plan

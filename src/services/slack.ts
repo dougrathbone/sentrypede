@@ -3,6 +3,7 @@ import { WebClient } from '@slack/web-api';
 import { logger } from '../utils/logger';
 import { SlackConfig } from '../config';
 import { SentryIssue, SentryEvent } from './sentry';
+import { SlackMessageBuilderService } from './slack-message.builder';
 
 export interface SlackThread {
   issueId: string;
@@ -25,9 +26,11 @@ export class SlackService {
   private config: SlackConfig;
   private threads: Map<string, SlackThread> = new Map();
   private issueContexts: Map<string, IssueContext> = new Map();
+  private messageBuilder: SlackMessageBuilderService;
 
   constructor(config: SlackConfig) {
     this.config = config;
+    this.messageBuilder = new SlackMessageBuilderService();
     
     this.app = new App({
       token: config.botToken,
@@ -61,11 +64,12 @@ export class SlackService {
    * Post a new issue notification and create a thread
    */
   async notifyNewIssue(issue: SentryIssue, event?: SentryEvent): Promise<SlackThread> {
-    const blocks = this.createIssueBlocks(issue, event);
+    const blocks = this.messageBuilder.createInitialIssueBlocks(issue, event);
+    const text = this.messageBuilder.getInitialIssueFallbackText(issue);
     
     const result = await this.client.chat.postMessage({
       channel: this.config.channelId,
-      text: `🚨 New ${issue.level} in ${issue.project.name}: ${this.truncate(issue.title, 100)}`,
+      text,
       blocks,
       unfurl_links: false,
     });
@@ -102,8 +106,7 @@ export class SlackService {
       return;
     }
 
-    const emoji = this.getStatusEmoji(status);
-    const message = details ? `${emoji} ${status}\n${details}` : `${emoji} ${status}`;
+    const message = this.messageBuilder.createStatusMessageText(status, details);
 
     await this.client.chat.postMessage({
       channel: thread.channelId,
@@ -132,29 +135,13 @@ export class SlackService {
       context.analysisConfidence = analysis.confidence;
     }
 
-    const confidenceEmoji = analysis.confidence > 0.7 ? '🟢' : analysis.confidence > 0.4 ? '🟡' : '🔴';
-    
-    const blocks: KnownBlock[] = [
-      {
-        type: 'section',
-        text: {
-          type: 'mrkdwn',
-          text: `🔍 *Analysis Complete*\n\n*Summary:* ${analysis.summary}\n*Likely Cause:* ${analysis.cause}\n*Confidence:* ${confidenceEmoji} ${Math.round(analysis.confidence * 100)}%`,
-        },
-      },
-      {
-        type: 'section',
-        text: {
-          type: 'mrkdwn',
-          text: `*Suggested Fix:*\n\`\`\`${analysis.suggestion}\`\`\``,
-        },
-      },
-    ];
+    const blocks = this.messageBuilder.createAnalysisReportBlocks(analysis);
+    const text = this.messageBuilder.getAnalysisReportFallbackText();
 
     await this.client.chat.postMessage({
       channel: thread.channelId,
       thread_ts: thread.threadTs,
-      text: '🔍 Analysis Complete',
+      text,
       blocks,
     });
   }
@@ -172,29 +159,13 @@ export class SlackService {
       context.fixAttempted = true;
     }
 
-    const blocks: KnownBlock[] = [
-      {
-        type: 'section',
-        text: {
-          type: 'mrkdwn',
-          text: `✅ *Fix Created Successfully!*${summary ? `\n\n${summary}` : ''}\n\n<${prUrl}|View Pull Request>`,
-        },
-        accessory: {
-          type: 'button',
-          text: {
-            type: 'plain_text',
-            text: 'Review PR',
-          },
-          url: prUrl,
-          style: 'primary',
-        },
-      },
-    ];
+    const blocks = this.messageBuilder.createSuccessBlocks(prUrl, summary);
+    const text = this.messageBuilder.getSuccessFallbackText();
 
     await this.client.chat.postMessage({
       channel: thread.channelId,
       thread_ts: thread.threadTs,
-      text: '✅ Fix created successfully!',
+      text,
       blocks,
     });
   }
@@ -210,42 +181,13 @@ export class SlackService {
     const context = this.issueContexts.get(issueId);
     const issue = context?.issue;
 
-    let text = `❌ *Unable to create automated fix*\n\n*Reason:* ${reason}`;
-    
-    if (suggestions && suggestions.length > 0) {
-      text += '\n\n*Next steps:*\n' + suggestions.map(s => `• ${s}`).join('\n');
-    }
-
-    const blocks: KnownBlock[] = [
-      {
-        type: 'section',
-        text: {
-          type: 'mrkdwn',
-          text,
-        },
-      },
-    ];
-
-    if (issue) {
-      blocks.push({
-        type: 'actions',
-        elements: [
-          {
-            type: 'button',
-            text: {
-              type: 'plain_text',
-              text: 'View in Sentry',
-            },
-            url: issue.permalink,
-          },
-        ],
-      });
-    }
+    const blocks = this.messageBuilder.createFailureBlocks(reason, issue?.permalink, suggestions);
+    const text = this.messageBuilder.getFailureFallbackText();
 
     await this.client.chat.postMessage({
       channel: thread.channelId,
       thread_ts: thread.threadTs,
-      text: '❌ Unable to create automated fix',
+      text,
       blocks,
     });
   }
@@ -269,100 +211,6 @@ export class SlackService {
   }
 
   /**
-   * Create issue notification blocks
-   */
-  private createIssueBlocks(issue: SentryIssue, event?: SentryEvent): KnownBlock[] {
-    const env = issue.tags?.find(t => t.key === 'environment')?.value || 'unknown';
-    const browser = issue.tags?.find(t => t.key === 'browser')?.value;
-    
-    // Build a clean, scannable summary
-    const summary = [
-      `📍 *${issue.project.name}* (${env})`,
-      `🔢 ${this.formatNumber(parseInt(issue.count))} occurrences affecting ${this.formatNumber(issue.userCount)} users`,
-      `⏱️ First seen ${this.getRelativeTime(new Date(issue.firstSeen))}`,
-    ];
-
-    if (browser) {
-      summary.push(`🌐 ${browser}`);
-    }
-
-    const blocks: KnownBlock[] = [
-      {
-        type: 'header',
-        text: {
-          type: 'plain_text',
-          text: `${this.getSeverityEmoji(issue.level)} ${issue.level.toUpperCase()}: ${issue.metadata.type}`,
-        },
-      },
-      {
-        type: 'section',
-        text: {
-          type: 'mrkdwn',
-          text: `*${this.truncate(issue.title, 150)}*\n\n${summary.join('\n')}`,
-        },
-      },
-    ];
-
-    // Add error location if available
-    if (issue.culprit) {
-      blocks.push({
-        type: 'section',
-        text: {
-          type: 'mrkdwn',
-          text: `📄 \`${issue.culprit}\``,
-        },
-      });
-    }
-
-    // Add error message if different from title
-    if (issue.metadata.value && issue.metadata.value !== issue.title) {
-      blocks.push({
-        type: 'section',
-        text: {
-          type: 'mrkdwn',
-          text: `\`\`\`${this.truncate(issue.metadata.value, 200)}\`\`\``,
-        },
-      });
-    }
-
-    // Add stack trace preview if available
-    if (event?.entries) {
-      const stackFrame = this.getRelevantStackFrame(event);
-      if (stackFrame) {
-        blocks.push({
-          type: 'context',
-          elements: [{
-            type: 'mrkdwn',
-            text: `Stack: \`${stackFrame.filename}:${stackFrame.lineno}\` in \`${stackFrame.function || 'anonymous'}\``,
-          }],
-        });
-      }
-    }
-
-    // Add action buttons
-    blocks.push(
-      {
-        type: 'divider',
-      },
-      {
-        type: 'actions',
-        elements: [
-          {
-            type: 'button',
-            text: {
-              type: 'plain_text',
-              text: 'View in Sentry',
-            },
-            url: issue.permalink,
-          },
-        ],
-      }
-    );
-
-    return blocks;
-  }
-
-  /**
    * Setup Slack event handlers
    */
   private setupHandlers(): void {
@@ -372,20 +220,11 @@ export class SlackService {
       
       if (text.includes('status')) {
         const stats = this.getStats();
-        await say({
-          thread_ts: event.ts,
-          text: `📊 *Current Status*\n• Active issues: ${stats.active}\n• Fixed today: ${stats.fixed}\n• Failed: ${stats.failed}`,
-        });
+        await say({ thread_ts: event.ts, ...this.messageBuilder.createAgentStatusMessage(stats) });
       } else if (text.includes('help')) {
-        await say({
-          thread_ts: event.ts,
-          text: `👋 I'm Sentrypede! I monitor Sentry for errors and create fixes.\n\nCommands:\n• \`@Sentrypede status\` - See current stats\n• \`@Sentrypede help\` - Show this message`,
-        });
+        await say({ thread_ts: event.ts, ...this.messageBuilder.createHelpMessage() });
       } else {
-        await say({
-          thread_ts: event.ts,
-          text: `Hello! Type \`@Sentrypede help\` to see what I can do.`,
-        });
+        await say({ thread_ts: event.ts, ...this.messageBuilder.createDefaultReply() });
       }
     });
 
@@ -408,58 +247,6 @@ export class SlackService {
       fixed: threads.filter(t => t.status === 'success' && t.createdAt >= today).length,
       failed: threads.filter(t => t.status === 'failed' && t.createdAt >= today).length,
     };
-  }
-
-  /**
-   * Utility methods
-   */
-  private getSeverityEmoji(level: string): string {
-    const emojis: Record<string, string> = {
-      fatal: '💀',
-      error: '🔴',
-      warning: '⚠️',
-      info: 'ℹ️',
-    };
-    return emojis[level] || '🔵';
-  }
-
-  private getStatusEmoji(status: string): string {
-    const statusLower = status.toLowerCase();
-    if (statusLower.includes('analyz')) return '🔍';
-    if (statusLower.includes('fetch')) return '📥';
-    if (statusLower.includes('generat') || statusLower.includes('creat')) return '🔨';
-    if (statusLower.includes('test')) return '🧪';
-    if (statusLower.includes('complete') || statusLower.includes('success')) return '✅';
-    if (statusLower.includes('fail') || statusLower.includes('error')) return '❌';
-    return '🔄';
-  }
-
-  private formatNumber(num: number): string {
-    return new Intl.NumberFormat().format(num);
-  }
-
-  private getRelativeTime(date: Date): string {
-    const now = new Date();
-    const diffMs = now.getTime() - date.getTime();
-    const diffMins = Math.floor(diffMs / 60000);
-    const diffHours = Math.floor(diffMins / 60);
-    const diffDays = Math.floor(diffHours / 24);
-
-    if (diffDays > 0) return `${diffDays}d ago`;
-    if (diffHours > 0) return `${diffHours}h ago`;
-    if (diffMins > 0) return `${diffMins}m ago`;
-    return 'just now';
-  }
-
-  private truncate(text: string, maxLength: number): string {
-    if (text.length <= maxLength) return text;
-    return text.substring(0, maxLength - 3) + '...';
-  }
-
-  private getRelevantStackFrame(event: SentryEvent): any {
-    const exception = event.entries?.find(e => e.type === 'exception');
-    const frames = exception?.data?.values?.[0]?.stacktrace?.frames;
-    return frames?.[frames.length - 1];
   }
 
   /**

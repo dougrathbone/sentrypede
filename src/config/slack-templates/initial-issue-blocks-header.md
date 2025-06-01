@@ -1,0 +1,1 @@
+{{severityEmoji}} {{level_uppercase}}: {{metadata.type}} 

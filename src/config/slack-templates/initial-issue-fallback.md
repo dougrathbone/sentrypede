@@ -1,0 +1,1 @@
+🚨 New {{level}} in {{project.name}}: {{title}} 

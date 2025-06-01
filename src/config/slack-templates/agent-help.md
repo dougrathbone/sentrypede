@@ -1,0 +1,1 @@
+👋 I'm Sentrypede! I monitor Sentry for errors and create fixes.\n\nCommands:\n• \`@Sentrypede status\` - See current stats\n• \`@Sentrypede help\` - Show this message 

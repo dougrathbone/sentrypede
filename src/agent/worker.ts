@@ -5,6 +5,9 @@ import { SentryService, SentryIssue } from '../services/sentry';
 import { SlackService } from '../services/slack';
 import { SentryServiceFactory, SentryServiceWithOAuth } from '../services/sentry-factory';
 import { SentryOAuthService } from '../services/sentry-oauth';
+import { GeminiService } from '../services/gemini';
+import { SourceFileRetrievalService } from '../services/source-file-retrieval';
+import { FileCache } from '../services/file-cache';
 
 export interface WorkerStats {
   startTime: Date;
@@ -20,6 +23,9 @@ export class SentryAgent {
   private sentryService!: SentryService;
   private sentryOAuthService: SentryOAuthService | undefined;
   private slackService: SlackService;
+  private geminiService: GeminiService;
+  private sourceFileService: SourceFileRetrievalService;
+  private fileCache: FileCache;
   private cronJob?: cron.ScheduledTask;
   private stats: WorkerStats;
   private isShuttingDown = false;
@@ -28,6 +34,15 @@ export class SentryAgent {
   constructor(config: AppConfig) {
     this.config = config;
     this.slackService = new SlackService(config.slack);
+    this.geminiService = new GeminiService(config.gemini);
+    
+    // Initialize file cache and source file service
+    this.fileCache = new FileCache({
+      maxSizeBytes: 100 * 1024 * 1024, // 100MB
+      maxEntries: 1000,
+      ttlMs: 60 * 60 * 1000, // 1 hour
+    });
+    this.sourceFileService = new SourceFileRetrievalService(config.github, this.fileCache);
     
     this.stats = {
       startTime: new Date(),
@@ -192,25 +207,17 @@ export class SentryAgent {
       this.sentryService.markAsProcessed(issue.id);
 
       // Post initial Slack notification
-      const thread = await this.slackService.postIssueNotification(issue);
+      const thread = await this.slackService.notifyNewIssue(issue);
       logger.info('Posted Slack notification', {
         issueId: issue.id,
         threadTs: thread.threadTs,
       });
 
       // Post processing started message
-      await this.slackService.postProcessingStarted(issue.id);
+      await this.slackService.updateStatus(issue.id, 'Starting analysis...');
 
-      // TODO: In the next phase, we'll add:
-      // 1. Fetch detailed issue information and stack trace
-      // 2. Use AI (Gemini) to analyze and generate fix
-      // 3. Create GitHub branch and apply fix
-      // 4. Generate and run tests
-      // 5. Create pull request
-      // 6. Post success/failure message to Slack
-
-      // For now, simulate processing delay
-      await this.simulateProcessing(issue);
+      // Enhanced AI processing with source debugging
+      await this.performEnhancedAnalysis(issue);
 
     } catch (error) {
       logger.error('Failed to process issue', {
@@ -222,10 +229,10 @@ export class SentryAgent {
 
       // Try to post failure message to Slack
       try {
-        await this.slackService.postFixFailure(
+        await this.slackService.notifyFailure(
           issue.id,
           'Internal processing error',
-          issue.permalink
+          ['Check logs for details', 'Restart the service if needed']
         );
       } catch (slackError) {
         logger.error('Failed to post failure message to Slack', { slackError });
@@ -234,40 +241,401 @@ export class SentryAgent {
   }
 
   /**
-   * Simulate processing for demonstration (will be replaced with actual AI processing)
+   * Perform enhanced AI analysis with source code context
    */
-  private async simulateProcessing(issue: SentryIssue): Promise<void> {
-    // Simulate some processing time
-    await new Promise(resolve => setTimeout(resolve, 2000));
+  private async performEnhancedAnalysis(issue: SentryIssue): Promise<void> {
+    try {
+      logger.info('Starting enhanced AI analysis', { issueId: issue.id });
 
-    // For demonstration, randomly succeed or fail
-    const shouldSucceed = Math.random() > 0.3; // 70% success rate
+      // Step 1: Fetch detailed event information
+      await this.slackService.updateStatus(issue.id, 'Fetching detailed error information...');
+      let event = null;
+      try {
+        event = await this.sentryService.getLatestEvent(issue.id);
+        logger.info('Retrieved detailed event data', { issueId: issue.id });
+      } catch (error) {
+        logger.warn('Could not fetch detailed event data', { issueId: issue.id, error });
+      }
 
-    if (shouldSucceed) {
-      this.stats.issuesFixed++;
+      // Step 2: Create source analysis context  
+      await this.slackService.updateStatus(issue.id, 'Analyzing source code context...');
+      let sourceContext = null;
+      if (event) {
+        try {
+          sourceContext = await this.sourceFileService.createAnalysisContext(event);
+          if (sourceContext) {
+            logger.info('Created source analysis context', {
+              issueId: issue.id,
+              primaryFile: sourceContext.primaryFile.filePath,
+              relatedFiles: sourceContext.relatedFiles.length,
+              language: sourceContext.primaryFile.fileInfo.language,
+            });
+          }
+        } catch (error) {
+          logger.warn('Could not create source analysis context', { issueId: issue.id, error });
+        }
+      }
+
+      // Step 3: Perform AI analysis
+      await this.slackService.updateStatus(issue.id, 'Performing AI analysis...');
       
-      // Simulate a GitHub PR URL
-      const prUrl = `https://github.com/${this.config.github.owner}/${this.config.github.repo}/pull/123`;
-      
-      await this.slackService.postFixSuccess(issue.id, prUrl);
-      
-      logger.info('Simulated successful fix', {
-        issueId: issue.id,
-        pullRequestUrl: prUrl,
+      if (sourceContext) {
+        // Enhanced analysis with source code
+        const enhancedAnalysisResult = await this.performSourceCodeAnalysis(issue, sourceContext);
+        await this.postEnhancedAnalysisToSlack(issue, enhancedAnalysisResult);
+
+        // Now, attempt to generate fixes based on this enhanced analysis
+        if (enhancedAnalysisResult && enhancedAnalysisResult.analysis && enhancedAnalysisResult.analysis.affectedFiles && enhancedAnalysisResult.analysis.affectedFiles.length > 0) {
+          await this.slackService.updateStatus(issue.id, 'Attempting to generate code fixes...');
+          logger.info('Attempting to generate fixes for AI analysis', { 
+            issueId: issue.id, 
+            affectedFiles: enhancedAnalysisResult.analysis.affectedFiles 
+          });
+
+          const codeContextMap = await this.sourceFileService.fetchMultipleFiles(
+            enhancedAnalysisResult.analysis.affectedFiles,
+            sourceContext.repositoryInfo.commitSha
+          );
+
+          const codeContext: { [filePath: string]: string } = {};
+          for (const [key, value] of codeContextMap.entries()) {
+            codeContext[key] = value;
+          }
+
+          if (Object.keys(codeContext).length > 0) {
+            try {
+              const fixes = await this.geminiService.generateFixes(
+                issue, 
+                event, // event might be null, generateFixes handles this
+                enhancedAnalysisResult.analysis, // Pass the rich analysis object
+                codeContext
+              );
+
+              if (fixes && fixes.length > 0) {
+                logger.info('Successfully generated code fixes', { issueId: issue.id, fixCount: fixes.length, fixes });
+                await this.slackService.updateStatus(issue.id, `Successfully generated ${fixes.length} potential fix(es).`);
+                // TODO: Next steps - PR creation, etc.
+                this.stats.issuesFixed++; // Increment if we consider fix generation a success for now
+              } else {
+                logger.info('No fixes generated by AI', { issueId: issue.id });
+                await this.slackService.updateStatus(issue.id, 'AI analysis complete, but no specific code fixes were generated.');
+              }
+            } catch (fixError) {
+              logger.error('Failed to generate code fixes', { issueId: issue.id, error: fixError });
+              await this.slackService.updateStatus(issue.id, 'Error during code fix generation.');
+            }
+          } else {
+            logger.warn('Could not retrieve code context for any affected files. Skipping fix generation.', { issueId: issue.id, affectedFiles: enhancedAnalysisResult.analysis.affectedFiles });
+            await this.slackService.updateStatus(issue.id, 'Analysis complete, but could not retrieve source code for fix generation.');
+          }
+        } else {
+          logger.info('No affected files identified by AI analysis, or analysis failed. Skipping fix generation.', { issueId: issue.id });
+        }
+        
+        logger.info('Enhanced AI analysis completed successfully', { 
+          issueId: issue.id,
+          hasSourceCode: true 
+        });
+      } else {
+        // Basic analysis without source code
+        const basicAnalysis = await this.performBasicAnalysis(issue, event);
+        await this.postBasicAnalysisToSlack(issue, basicAnalysis);
+        // We might still attempt fixes based on basic analysis if it identifies affected files
+        // For now, basic analysis doesn't provide structured affectedFiles, so we skip fix generation here.
+        logger.info('Basic AI analysis completed, no source code for automated fixes.', { 
+          issueId: issue.id,
+          hasSourceCode: false 
+        });
+        // this.stats.issuesFixed++; // Only count as fixed if actual fixes are applied or PRs created
+      }
+
+      // Display cache statistics
+      const cacheStats = this.sourceFileService.getCacheStats();
+      logger.debug('Source file cache statistics', {
+        totalEntries: cacheStats.totalEntries,
+        totalSizeKB: Math.round(cacheStats.totalSizeBytes / 1024),
+        hitRate: Math.round(cacheStats.hitRate * 100) + '%',
       });
-    } else {
-      this.stats.issuesFailed++;
+
+    } catch (error) {
+      logger.error('Enhanced analysis failed', { issueId: issue.id, error });
       
-      await this.slackService.postFixFailure(
+      // Post failure message
+      await this.slackService.notifyFailure(
         issue.id,
-        'Unable to generate a suitable fix for this error type',
-        issue.permalink
+        `AI analysis failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        ['Review error logs', 'Check AI service connection', 'Verify GitHub access']
       );
       
-      logger.info('Simulated failed fix', {
-        issueId: issue.id,
-      });
+      this.stats.issuesFailed++;
     }
+  }
+
+  /**
+   * Perform AI analysis with source code context
+   */
+  private async performSourceCodeAnalysis(issue: SentryIssue, sourceContext: any): Promise<any> {
+    const errorLines = sourceContext.primaryFile.contextLines.lines
+      .map((line: any) => 
+        `${line.number.toString().padStart(3)}: ${line.isErrorLine ? '>>> ' : '    '}${line.content}`
+      )
+      .join('\n');
+
+    // Build comprehensive analysis prompt
+    const analysisPrompt = `Analyze this production error with actual source code context and provide specific, actionable fix recommendations.
+
+**Error Details:**
+- Title: ${issue.title}
+- Type: ${issue.metadata?.type || 'Unknown'}
+- Occurrences: ${issue.count} times
+- Users Affected: ${issue.userCount}
+- Platform: ${sourceContext.primaryFile.fileInfo.language}
+- File: ${sourceContext.primaryFile.filePath}
+- Environment: ${issue.tags?.find((t: any) => t.key === 'environment')?.value || 'unknown'}
+
+**Source Code Context (line ${sourceContext.primaryFile.errorLocation?.line || 'unknown'}):**
+\`\`\`${sourceContext.primaryFile.fileInfo.language}
+${errorLines}
+\`\`\`
+
+**Related Files in Stack Trace:**
+${sourceContext.relatedFiles.map((file: any) => `- ${file.filePath} (${file.fileInfo.language})`).join('\n')}
+
+**Repository Info:**
+- Owner: ${sourceContext.repositoryInfo.owner}
+- Repo: ${sourceContext.repositoryInfo.repo}
+- Commit: ${sourceContext.repositoryInfo.commitSha.substring(0, 12)}
+
+Please provide a detailed JSON response with the following structure:
+{
+  "rootCause": "Specific technical explanation based on the actual code",
+  "fixRecommendation": "Concrete code changes or patterns to implement",
+  "codeExample": "Actual code snippet showing the fix (if applicable)",
+  "confidenceScore": "8/10",
+  "riskLevel": "Low|Medium|High with explanation",
+  "testingGuidance": "Specific test cases to verify the fix",
+  "preventionTips": "How to prevent similar issues in the future",
+  "additionalContext": "Any patterns or dependencies noticed in the code"
+}
+
+Focus on the actual source code provided and give specific, implementable recommendations.`;
+
+    // Send to Gemini for analysis
+    const model = (this.geminiService as any).model;
+    const aiResult = await model.generateContent(analysisPrompt);
+    const response = await aiResult.response;
+    const aiText = response.text();
+
+    logger.info('Received AI analysis response', {
+      responseLength: aiText.length,
+      issueId: issue.id
+    });
+
+    // Parse AI response
+    try {
+      const jsonMatch = aiText.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        const parsed = JSON.parse(jsonMatch[0]);
+        return {
+          type: 'enhanced',
+          sourceContext,
+          analysis: parsed,
+          errorLines
+        };
+      }
+    } catch (parseError) {
+      logger.warn('Failed to parse AI response as JSON', { issueId: issue.id });
+    }
+
+    // Fallback parsing
+    return {
+      type: 'enhanced',
+      sourceContext,
+      analysis: {
+        rootCause: this.extractSection(aiText, 'Root Cause') || 'AI analysis indicates a production error requiring investigation',
+        fixRecommendation: this.extractSection(aiText, 'Fix') || 'Review the code context and implement proper error handling',
+        codeExample: this.extractCodeBlock(aiText) || null,
+        confidenceScore: '7/10',
+        riskLevel: 'Medium - requires careful testing',
+        testingGuidance: 'Create unit tests that reproduce the error condition',
+        preventionTips: 'Add type checking and defensive programming practices',
+        additionalContext: aiText.substring(0, 300) + '...'
+      },
+      errorLines
+    };
+  }
+
+  /**
+   * Perform basic AI analysis without source code
+   */
+  private async performBasicAnalysis(issue: SentryIssue, event: any): Promise<any> {
+    const environment = issue.tags?.find((t: any) => t.key === 'environment')?.value || 'unknown';
+    
+    const analysisPrompt = `Analyze this production error and provide guidance for investigation.
+
+**Error Details:**
+- Title: ${issue.title}
+- Type: ${issue.metadata?.type || 'Unknown'}
+- Occurrences: ${issue.count} times
+- Users Affected: ${issue.userCount}
+- Environment: ${environment}
+- Platform: ${event?.platform || 'unknown'}
+
+Provide practical recommendations for investigating and fixing this error, including:
+- Likely root causes
+- Investigation steps
+- Common fixes for this error type
+- Prevention strategies
+
+Keep the response focused and actionable.`;
+
+    const model = (this.geminiService as any).model;
+    const aiResult = await model.generateContent(analysisPrompt);
+    const response = await aiResult.response;
+    const aiText = response.text();
+
+    return {
+      type: 'basic',
+      analysis: aiText,
+      environment
+    };
+  }
+
+  /**
+   * Post enhanced analysis results to Slack
+   */
+  private async postEnhancedAnalysisToSlack(issue: SentryIssue, analysis: any): Promise<void> {
+    const formattedAnalysis = this.formatEnhancedAnalysis(analysis.analysis);
+    const codeBlock = '```';
+    
+    const message = `🎯 **Enhanced AI Source Debugger Analysis** ✨
+
+**🐛 Error Details:**
+• **Title:** ${issue.title}
+• **Type:** ${issue.metadata?.type || 'Unknown'}
+• **Occurrences:** ${issue.count} times
+• **Users Affected:** ${issue.userCount}
+• **Sentry Link:** ${issue.permalink}
+
+**📁 Source Context:**
+• **Repository:** ${analysis.sourceContext.repositoryInfo.owner}/${analysis.sourceContext.repositoryInfo.repo}
+• **Commit:** \`${analysis.sourceContext.repositoryInfo.commitSha.substring(0, 12)}\`
+• **Primary File:** \`${analysis.sourceContext.primaryFile.filePath}\` (${analysis.sourceContext.primaryFile.fileInfo.language})
+• **Error Location:** Line ${analysis.sourceContext.primaryFile.errorLocation?.line || 'unknown'}
+• **Related Files:** ${analysis.sourceContext.relatedFiles.length} additional files analyzed
+
+**💻 Code Context:**
+${codeBlock}${analysis.sourceContext.primaryFile.fileInfo.language}
+${analysis.errorLines}
+${codeBlock}
+
+**🤖 AI Analysis Results:**
+${formattedAnalysis}
+
+**📊 Related Files:**
+${analysis.sourceContext.relatedFiles.map((file: any) => `• \`${file.filePath}\` (${file.fileInfo.language})`).join('\n')}
+
+---
+*🚀 Powered by Sentrypede Source Debugger - Production Ready*
+*🧠 Enhanced with Google Gemini AI for intelligent code analysis*`;
+
+    await this.slackService.postMessage(message);
+  }
+
+  /**
+   * Post basic analysis results to Slack
+   */
+  private async postBasicAnalysisToSlack(issue: SentryIssue, analysis: any): Promise<void> {
+    const message = `🔍 **AI Error Analysis** (No Source Code Available)
+
+**🐛 Error Details:**
+• **Title:** ${issue.title}
+• **Type:** ${issue.metadata?.type || 'Unknown'}
+• **Occurrences:** ${issue.count} times
+• **Users Affected:** ${issue.userCount}
+• **Environment:** ${analysis.environment}
+• **Sentry Link:** ${issue.permalink}
+
+**🤖 AI Analysis:**
+${analysis.analysis}
+
+**💡 Note:** This is basic analysis without source code context. For enhanced debugging with actual code analysis, ensure errors have unmapped stack traces pointing to repository files.
+
+---
+*🚀 Powered by Sentrypede Source Debugger*
+*🧠 AI-assisted error analysis by Google Gemini*`;
+
+    await this.slackService.postMessage(message);
+  }
+
+  /**
+   * Format enhanced AI analysis for display
+   */
+  private formatEnhancedAnalysis(analysis: any): string {
+    let formatted = '';
+
+    if (analysis.rootCause) {
+      formatted += `**🔍 Root Cause Analysis:**\n${analysis.rootCause}\n\n`;
+    }
+
+    if (analysis.fixRecommendation) {
+      formatted += `**💡 Fix Recommendation:**\n${analysis.fixRecommendation}\n\n`;
+    }
+
+    if (analysis.codeExample) {
+      formatted += `**📝 Code Example:**\n\`\`\`javascript\n${analysis.codeExample}\n\`\`\`\n\n`;
+    }
+
+    if (analysis.confidenceScore) {
+      formatted += `**🎯 Confidence:** ${analysis.confidenceScore}\n\n`;
+    }
+
+    if (analysis.riskLevel) {
+      formatted += `**⚠️ Risk Level:** ${analysis.riskLevel}\n\n`;
+    }
+
+    if (analysis.testingGuidance) {
+      formatted += `**🧪 Testing Guidance:**\n${analysis.testingGuidance}\n\n`;
+    }
+
+    if (analysis.preventionTips) {
+      formatted += `**🛡️ Prevention Tips:**\n${analysis.preventionTips}\n\n`;
+    }
+
+    if (analysis.additionalContext) {
+      formatted += `**📋 Additional Context:**\n${analysis.additionalContext}`;
+    }
+
+    return formatted || 'Analysis completed - please review the error details and source code context.';
+  }
+
+  /**
+   * Extract section from AI response text
+   */
+  private extractSection(text: string, sectionName: string): string | null {
+    const patterns = [
+      new RegExp(`\\*\\*${sectionName}[^*]*\\*\\*:?\\s*([^*]+)`, 'i'),
+      new RegExp(`${sectionName}:?\\s*([^\\n]+)`, 'i'),
+    ];
+
+    for (const pattern of patterns) {
+      const match = text.match(pattern);
+      if (match && match[1]) {
+        return match[1].trim();
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Extract code block from AI response
+   */
+  private extractCodeBlock(text: string): string | null {
+    const codeBlockMatch = text.match(/```(?:javascript|js|typescript|ts)?\n([\s\S]*?)\n```/);
+    if (codeBlockMatch) {
+      return codeBlockMatch[1].trim();
+    }
+    return null;
   }
 
   /**

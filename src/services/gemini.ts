@@ -108,9 +108,9 @@ export class GeminiService {
   }
 
   /**
-   * Generate code fixes based on the analysis
+   * Generate code fixes based on the analysis. Made public to allow use with external analysis.
    */
-  private async generateFixes(
+  public async generateFixes(
     issue: SentryIssue,
     event: SentryEvent | null,
     analysis: ErrorAnalysis,
